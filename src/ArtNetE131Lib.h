@@ -169,46 +169,28 @@ typedef struct _artnet_def artnet_device;
 
 class espArtNetRDM {
 public:
-	// init fuctions
 	espArtNetRDM();
 	~espArtNetRDM();
 
-	void init(IPAddress, IPAddress, bool, char*, char*, uint16_t, uint16_t, uint8_t*);
-	void init(IPAddress ip, IPAddress sub, bool dhcp, uint16_t oem, uint16_t esta, uint8_t* mac) {
-		init(ip, sub, dhcp, "espArtNetNode", "espArtNetNode", oem, esta, mac);
-	};
-	void init(char* shortName, char* longName, uint16_t oem, uint16_t esta, uint8_t* mac) {
-		init(INADDR_NONE, INADDR_NONE, false, shortName, longName, oem, esta, mac);
-		setDefaultIP();
-	};
-	void init(char* shortName, uint16_t oem, uint16_t esta, uint8_t* mac) {
-		init(INADDR_NONE, INADDR_NONE, false, shortName, shortName, oem, esta, mac);
-		setDefaultIP();
-	};
-	void init(uint16_t oem, uint16_t esta, uint8_t* mac) {
-		init(INADDR_NONE, INADDR_NONE, false, "espArtNetNode", "espArtNetNode", oem, esta, mac);
-		setDefaultIP();
+	void init(IPAddress ip, IPAddress sub, uint8_t* mac, bool dhcp,
+				const char* shortName, const char* longName, uint16_t oem, uint16_t esta);
+	void init(const char* name, uint16_t oem = ARTNET_DEFAULT_OEM, uint16_t esta = ARTNET_DEFAULT_ESTA_MAN) {
+		IPAddress ip = WiFi.localIP();
+		IPAddress sub = WiFi.subnetMask();
+		uint8_t mac[6];
+		WiFi.macAddress(mac);
+		init(ip, sub, mac, true, name, name, oem, esta);
 	};
 
 	void setFirmwareVersion(uint16_t);
 	void setDefaultIP();
 
 	uint8_t addGroup(uint8_t, uint8_t);
-
-	uint8_t addPort(uint8_t, uint8_t, uint8_t, uint8_t, bool, uint8_t*);
-	uint8_t addPort(uint8_t group, uint8_t port, uint8_t universe, uint8_t type, bool htp) {
-		return addPort(group, port, universe, type, htp, 0);
-	};
-	uint8_t addPort(uint8_t group, uint8_t port, uint8_t universe, uint8_t type) {
-		return addPort(group, port, universe, type, true, 0);
-	};
-	uint8_t addPort(uint8_t group, uint8_t port, uint8_t universe) {
-		return addPort(group, port, universe, RECEIVE_DMX, true, 0);
-	};
-
+	uint8_t addPort(uint8_t group, uint8_t port, uint8_t universe,
+					uint8_t type = RECEIVE_DMX, bool htp = true, uint8_t* buf = nullptr);
 	bool closePort(uint8_t, uint8_t);
+
 	void begin();
-	void end();
 	void pause();
 	uint8_t* getDMX(uint8_t, uint8_t);
 	uint16_t numChans(uint8_t, uint8_t);
@@ -275,6 +257,7 @@ public:
 
 private:
 	artnet_device* _art = nullptr;
+	void end();
 
 	int _artOpCode(unsigned char*);
 	void _artIPProgReply();

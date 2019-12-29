@@ -62,19 +62,7 @@ void espArtNetRDM::end() {
 	}
 }
 
-void espArtNetRDM::init(IPAddress ip, IPAddress subnet, bool dhcp, char* shortname, char* longname, uint16_t oem, uint16_t esta, uint8_t* mac) {
-	if (_art) os_free(_art);
-
-	// Allocate memory for our settings
-	_art = (artnet_device*)os_malloc(sizeof(artnet_device));
-
-	delay(1);
-
-	// Store values
-	_art->firmWareVersion = 0;
-	_art->numGroups = 0;
-	_art->nodeReportCounter = 0;
-	_art->nodeReportCode = ARTNET_RC_POWER_OK;
+void espArtNetRDM::init(IPAddress ip, IPAddress subnet, uint8_t* mac, bool dhcp, const char* shortname, const char* longname, uint16_t oem, uint16_t esta) {
 	_art->deviceIP = ip;
 	_art->subnet = ip;
 	_art->broadcastIP = IPAddress((uint32_t)ip | ~((uint32_t)subnet));
@@ -89,14 +77,10 @@ void espArtNetRDM::init(IPAddress ip, IPAddress subnet, bool dhcp, char* shortna
 }
 
 void espArtNetRDM::setFirmwareVersion(uint16_t fw) {
-	if (!_art) return;
-
 	_art->firmWareVersion = fw;
 }
 
 void espArtNetRDM::setDefaultIP() {
-	if (!_art) return;
-
 	_art->dhcp = false;
 	_art->subnet = IPAddress(255, 0, 0, 0);
 	_art->broadcastIP = IPAddress(2, 255, 255, 255);
@@ -109,8 +93,6 @@ void espArtNetRDM::setDefaultIP() {
 }
 
 uint8_t espArtNetRDM::addGroup(uint8_t net, uint8_t subnet) {
-	if (!_art) return 255;
-
 	uint8_t g = _art->numGroups;
 
 	_art->group[g] = new group_def;
@@ -122,8 +104,6 @@ uint8_t espArtNetRDM::addGroup(uint8_t net, uint8_t subnet) {
 }
 
 uint8_t espArtNetRDM::addPort(uint8_t g, uint8_t p, uint8_t universe, uint8_t t, bool htp, uint8_t* buf) {
-	if (!_art) return 255;
-
 	// Check for a valid universe, group and port number
 	if (universe > 15 || p >= 4 || g > _art->numGroups)
 		return 255;
@@ -139,7 +119,7 @@ uint8_t espArtNetRDM::addPort(uint8_t g, uint8_t p, uint8_t universe, uint8_t t,
 }
 
 bool espArtNetRDM::closePort(uint8_t g, uint8_t p) {
-	if (!_art || g >= _art->numGroups) return false;
+	if (g >= _art->numGroups) return false;
 
 	group_def* group = _art->group[g];
 
@@ -152,43 +132,34 @@ bool espArtNetRDM::closePort(uint8_t g, uint8_t p) {
 }
 
 void espArtNetRDM::setArtDMXCallback(ArtDMXCallback callback) {
-	if (!_art) return;
 	_art->dmxCallback = callback;
 }
 
 void espArtNetRDM::setArtSyncCallback(ArtSyncCallback callback) {
-	if (!_art) return;
 	_art->syncCallback = callback;
 }
 
 void espArtNetRDM::setArtRDMCallback(ArtRDMCallback callback) {
-	if (!_art) return;
 	_art->rdmCallback = callback;
 }
 
 void espArtNetRDM::setArtIPCallback(ArtIPCallback callback) {
-	if (!_art) return;
 	_art->ipCallback = callback;
 }
 
 void espArtNetRDM::setArtAddressCallback(ArtAddressCallback callback) {
-	if (!_art) return;
 	_art->addressCallback = callback;
 }
 
 void espArtNetRDM::setTODRequestCallback(ArtTodRequestCallback callback) {
-	if (!_art) return;
 	_art->todRequestCallback = callback;
 }
 
 void espArtNetRDM::setTODFlushCallback(ArtTodFlushCallback callback) {
-	if (!_art) return;
 	_art->todFlushCallback = callback;
 }
 
 void espArtNetRDM::begin() {
-	if (!_art) return;
-
 	// Start listening for UDP packets
 	eUDP.begin(ARTNET_PORT);
 	eUDP.flush();
@@ -201,8 +172,6 @@ void espArtNetRDM::begin() {
 }
 
 void espArtNetRDM::pause() {
-	if (!_art) return;
-
 	eUDP.flush();
 	eUDP.stopAll();
 }
@@ -576,21 +545,15 @@ void espArtNetRDM::_saveDMX(unsigned char *dmxData, uint16_t numberOfChannels, u
 }
 
 uint8_t* espArtNetRDM::getDMX(uint8_t g, uint8_t p) {
-	if (!_art) return NULL;
-
-	if (g < _art->numGroups) {
-		if (_art->group[g]->ports[p] != 0)
-			return _art->group[g]->ports[p]->dmxBuffer;
+	if (g < _art->numGroups && _art->group[g]->ports[p]) {
+    return _art->group[g]->ports[p]->dmxBuffer;
 	}
 	return NULL;
 }
 
 uint16_t espArtNetRDM::numChans(uint8_t g, uint8_t p) {
-	if (!_art) return 0;
-
-	if (g < _art->numGroups) {
-		if (_art->group[g]->ports[p] != 0)
-			return _art->group[g]->ports[p]->dmxChans;
+	if (g < _art->numGroups && _art->group[g]->ports[p]) {
+    return _art->group[g]->ports[p]->dmxChans;
 	}
 	return 0;
 }
@@ -864,8 +827,6 @@ void espArtNetRDM::_artTODRequest(unsigned char *_artBuffer) {
 }
 
 void espArtNetRDM::artTODData(uint8_t g, uint8_t p, uint16_t* uidMan, uint32_t* uidDev, uint16_t uidTotal, uint8_t state) {
-	if (!_art) return;
-
 	// Initialise our reply
 	uint16_t len = ARTNET_TOD_DATA_SIZE + (6 * uidTotal);
 	char artTodData[len];
@@ -981,8 +942,6 @@ void espArtNetRDM::_artRDM(unsigned char *_artBuffer, uint16_t packetSize) {
 }
 
 void espArtNetRDM::rdmResponse(rdm_data* c, uint8_t g, uint8_t p) {
-	if (!_art) return;
-
 	uint16_t len = ARTNET_RDM_REPLY_SIZE + c->packet.Length + 1;
 	// Initialise our reply
 	char rdmReply[len];
@@ -1013,23 +972,19 @@ void espArtNetRDM::_artRDMSub(unsigned char *_artBuffer) {
 }
 
 IPAddress espArtNetRDM::getIP() {
-	if (!_art) return INADDR_NONE;
 	return _art->deviceIP;
 }
 
 IPAddress espArtNetRDM::getSubnetMask() {
-	if (!_art) return INADDR_NONE;
-	return _art->subnet;
+  return _art->subnet;
 }
 
 bool espArtNetRDM::getDHCP() {
-	if (!_art) return false;
 	return _art->dhcp;
 }
 
 
 void espArtNetRDM::setIP(IPAddress ip, IPAddress subnet) {
-	if (!_art) return;
 	_art->deviceIP = ip;
 
 	if ((uint32_t)subnet != 0)
@@ -1039,89 +994,82 @@ void espArtNetRDM::setIP(IPAddress ip, IPAddress subnet) {
 }
 
 void espArtNetRDM::setDHCP(bool d) {
-	if (!_art) return;
 	_art->dhcp = d;
 }
 
 void espArtNetRDM::setNet(uint8_t g, uint8_t net) {
-	if (!_art || g >= _art->numGroups) return;
+	if (g >= _art->numGroups) return;
 	_art->group[g]->netSwitch = net;
 }
 
 uint8_t espArtNetRDM::getNet(uint8_t g) {
-	if (!_art || g >= _art->numGroups) return 0;
+	if (g >= _art->numGroups) return 0;
 	return _art->group[g]->netSwitch;
 }
 
 void espArtNetRDM::setSubNet(uint8_t g, uint8_t sub) {
-	if (!_art || g >= _art->numGroups) return;
+	if (g >= _art->numGroups) return;
 	_art->group[g]->subnet = sub;
 }
 
 uint8_t espArtNetRDM::getSubNet(uint8_t g) {
-	if (!_art || g >= _art->numGroups) return 0;
+	if (g >= _art->numGroups) return 0;
 	return _art->group[g]->subnet;
 }
 
 void espArtNetRDM::setUni(uint8_t g, uint8_t p, uint8_t uni) {
-	if (!_art || g >= _art->numGroups || !_art->group[g]->ports[p]) return;
+	if (g >= _art->numGroups || !_art->group[g]->ports[p]) return;
 	_art->group[g]->ports[p]->portUni = uni;
 }
 
 uint8_t espArtNetRDM::getUni(uint8_t g, uint8_t p) {
-	if (!_art || g >= _art->numGroups || !_art->group[g]->ports[p]) return 0; //oh yeah 0 is invalid/test(?) uni right?
+	if (g >= _art->numGroups || !_art->group[g]->ports[p]) return 0; //oh yeah 0 is invalid/test(?) uni right?
 	return _art->group[g]->ports[p]->portUni;
 }
 
 
 void espArtNetRDM::setPortType(uint8_t g, uint8_t p, uint8_t t) {
-	if (!_art || g >= _art->numGroups || !_art->group[g]->ports[p]) return;
+	if (g >= _art->numGroups || !_art->group[g]->ports[p]) return;
 
 	_art->group[g]->ports[p]->portType = t;
 }
 
 void espArtNetRDM::setMerge(uint8_t g, uint8_t p, bool htp) {
-	if (!_art || g >= _art->numGroups || !_art->group[g]->ports[p]) return;
+	if (g >= _art->numGroups || !_art->group[g]->ports[p]) return;
 	_art->group[g]->ports[p]->mergeHTP = htp;
 }
 
 bool espArtNetRDM::getMerge(uint8_t g, uint8_t p) {
-	if (!_art || g >= _art->numGroups || !_art->group[g]->ports[p]) return false;
+	if (g >= _art->numGroups || !_art->group[g]->ports[p]) return false;
 	return _art->group[g]->ports[p]->mergeHTP;
 }
 
 
 
 void espArtNetRDM::setShortName(char* name) {
-	if (!_art) return;
 	memcpy(_art->shortName, name, ARTNET_SHORT_NAME_LENGTH);
 }
 
 char* espArtNetRDM::getShortName() {
-	if (!_art) return NULL;
 	return _art->shortName;
 }
 
 
 void espArtNetRDM::setLongName(char* name) {
-	if (!_art) return;
 	memcpy(_art->longName, name, ARTNET_LONG_NAME_LENGTH);
 }
 
 char* espArtNetRDM::getLongName() {
-	if (!_art) return NULL;
 	return _art->longName;
 }
 
 void espArtNetRDM::setNodeReport(char* c, uint16_t code) {
-	if (!_art) return;
-
 	strcpy(_art->nodeReport, c);
 	_art->nodeReportCode = code;
 }
 
 void espArtNetRDM::sendDMX(uint8_t g, uint8_t p, IPAddress bcAddress, uint8_t* data, uint16_t length) {
-	if (!_art || g >= _art->numGroups || !_art->group[g]->ports[p]) return;
+	if (g >= _art->numGroups || !_art->group[g]->ports[p]) return;
 
 	uint8_t net = _art->group[g]->netSwitch;
 	uint8_t subnet = _art->group[g]->subnet;
