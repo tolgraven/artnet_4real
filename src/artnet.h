@@ -14,9 +14,7 @@ If not, see http://www.gnu.org/licenses/
 */
 
 
-
-#ifndef artnet_data_h
-#define artnet_data_h
+#pragma once
 
 #define ARTNET_PORT 6454
 #define ARTNET_BUFFER_MAX 600
@@ -31,6 +29,9 @@ If not, see http://www.gnu.org/licenses/
 #define ARTNET_CANCEL_MERGE_TIMEOUT 2500
 #define DMX_BUFFER_SIZE 512
 #define DMX_MAX_CHANS 512
+
+#define ARTNET_MAX_GROUPS 16
+#define ARTNET_GROUP_MAX_PORTS 4
 
 // Artnet Op Codes
 #define ARTNET_ARTPOLL 0x2000
@@ -88,4 +89,3 @@ If not, see http://www.gnu.org/licenses/
 #define ARTNET_AC_ACN_SEL_2 0x72
 #define ARTNET_AC_ACN_SEL_3 0x73
 
-#endif

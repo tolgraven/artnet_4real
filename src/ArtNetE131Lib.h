@@ -13,13 +13,14 @@ You should have received a copy of the GNU General Public License along with thi
 If not, see http://www.gnu.org/licenses/
 */
 
+// goal is just update for modern c++, uncouple ESP8266WiFi (and ideally Arduino...)...
+#pragma once
 
-
-#ifndef espArtNetRDM_h
-#define espArtNetRDM_h
-
+#include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
+
+#include <functional>
 
 extern "C" {
 #include "mem.h"
@@ -27,13 +28,13 @@ extern "C" {
 #include "rdmDataTypes.h"
 #include "artnet.h"
 
-typedef void(*artDMXCallBack)(uint8_t, uint8_t, uint16_t, bool);
-typedef void(*artSyncCallBack)(void);
-typedef void(*artRDMCallBack)(uint8_t, uint8_t, rdm_data*);
-typedef void(*artIPCallBack)(void);
-typedef void(*artAddressCallBack)(void);
-typedef void(*artTodRequestCallBack)(uint8_t, uint8_t);
-typedef void(*artTodFlushCallBack)(uint8_t, uint8_t);
+using ArtDMXCallback		= std::function<void(uint8_t, uint8_t, uint16_t, bool)>;
+using ArtSyncCallback		= std::function<void()>;
+using ArtRDMCallback		= std::function<void(uint8_t, uint8_t, rdm_data*)>;
+using ArtIPCallback			= std::function<void()>;
+using ArtAddressCallback	= std::function<void()>;
+using ArtTodRequestCallback	= std::function<void(uint8_t, uint8_t)>;
+using ArtTodFlushCallback	= std::function<void(uint8_t, uint8_t)>;
 
 enum port_type {
 	RECEIVE_DMX = 0,   // = receive DMX from ArtNet
@@ -62,17 +63,17 @@ struct _port_def {
 	uint8_t e131Priority;
 
 	// Port universe
-	byte portUni;
+	uint8_t portUni;
 
 	// DMX final values buffer
-	byte* dmxBuffer;
+	uint8_t* dmxBuffer;
 	uint16_t dmxChans;
 	bool ownBuffer;
 	bool mergeHTP;
 	bool merging;
 
 	// ArtDMX input buffers for 2 IPs
-	byte* ipBuffer;
+	uint8_t* ipBuffer;
 	uint16_t ipChans[2];
 
 	// IPs for current data + time of last packet
@@ -95,11 +96,11 @@ typedef struct _port_def port_def;
 
 struct _group_def {
 	// Port Address
-	byte netSwitch = 0x00;
-	byte subnet = 0x00;
+	uint8_t netSwitch = 0x00;
+	uint8_t subnet = 0x00;
 
 	port_def* ports[4] = { 0,0,0,0 };
-	byte numPorts = 0;
+	uint8_t numPorts = 0;
 
 	IPAddress cancelMergeIP;
 	bool cancelMerge;
@@ -125,10 +126,10 @@ struct _artnet_def {
 	char shortName[ARTNET_SHORT_NAME_LENGTH];
 	char longName[ARTNET_LONG_NAME_LENGTH];
 
-	byte oemHi;
-	byte oemLo;
-	byte estaHi;
-	byte estaLo;
+	uint8_t oemHi;
+	uint8_t oemLo;
+	uint8_t estaHi;
+	uint8_t estaLo;
 
 	group_def* group[16];
 	uint8_t numGroups;
@@ -141,13 +142,13 @@ struct _artnet_def {
 	char nodeReport[ARTNET_NODE_REPORT_LENGTH];
 
 	// callback functions
-	artDMXCallBack dmxCallBack = 0;
-	artSyncCallBack syncCallBack = 0;
-	artRDMCallBack rdmCallBack = 0;
-	artIPCallBack ipCallBack = 0;
-	artAddressCallBack addressCallBack = 0;
-	artTodRequestCallBack todRequestCallBack = 0;
-	artTodFlushCallBack todFlushCallBack = 0;
+	ArtDMXCallback dmxCallback;
+	ArtSyncCallback syncCallback;
+	ArtRDMCallback rdmCallback;
+	ArtIPCallback ipCallback;
+	ArtAddressCallback addressCallback;
+	ArtTodRequestCallback todRequestCallback;
+	ArtTodFlushCallback todFlushCallback;
 };
 
 typedef struct _artnet_def artnet_device;
@@ -181,16 +182,16 @@ public:
 	void setFirmwareVersion(uint16_t);
 	void setDefaultIP();
 
-	uint8_t addGroup(byte, byte);
+	uint8_t addGroup(uint8_t, uint8_t);
 
-	uint8_t addPort(byte, byte, byte, uint8_t, bool, byte*);
-	uint8_t addPort(byte group, byte port, byte universe, uint8_t type, bool htp) {
+	uint8_t addPort(uint8_t, uint8_t, uint8_t, uint8_t, bool, uint8_t*);
+	uint8_t addPort(uint8_t group, uint8_t port, uint8_t universe, uint8_t type, bool htp) {
 		return addPort(group, port, universe, type, htp, 0);
 	};
-	uint8_t addPort(byte group, byte port, byte universe, uint8_t type) {
+	uint8_t addPort(uint8_t group, uint8_t port, uint8_t universe, uint8_t type) {
 		return addPort(group, port, universe, type, true, 0);
 	};
-	uint8_t addPort(byte group, byte port, byte universe) {
+	uint8_t addPort(uint8_t group, uint8_t port, uint8_t universe) {
 		return addPort(group, port, universe, RECEIVE_DMX, true, 0);
 	};
 
@@ -198,7 +199,7 @@ public:
 	void begin();
 	void end();
 	void pause();
-	byte* getDMX(uint8_t, uint8_t);
+	uint8_t* getDMX(uint8_t, uint8_t);
 	uint16_t numChans(uint8_t, uint8_t);
 
 	// protocol functions
@@ -213,13 +214,13 @@ public:
 	void handler();
 
 	// set callback functions
-	void setArtDMXCallback(void(*dmxCallBack)(uint8_t, uint8_t, uint16_t, bool));
-	void setArtRDMCallback(void(*rdmCallBack)(uint8_t, uint8_t, rdm_data*));
-	void setArtSyncCallback(void(*syncCallBack)());
-	void setArtIPCallback(void(*ipCallBack)());
-	void setArtAddressCallback(void(*addressCallBack)());
-	void setTODRequestCallback(void(*artTodRequestCallBack)(uint8_t, uint8_t));
-	void setTODFlushCallback(void(*artTodFlushCallBack)(uint8_t, uint8_t));
+	void setArtDMXCallback(ArtDMXCallback callback);
+	void setArtRDMCallback(ArtRDMCallback callback);
+	void setArtSyncCallback(ArtSyncCallback callback);
+	void setArtIPCallback(ArtIPCallback callback);
+	void setArtAddressCallback(ArtAddressCallback callback);
+	void setTODRequestCallback(ArtTodRequestCallback callback);
+	void setTODFlushCallback(ArtTodFlushCallback callback);
 
 	// set ArtNet uni settings
 	void setNet(uint8_t, uint8_t);
@@ -228,9 +229,9 @@ public:
 	void setPortType(uint8_t, uint8_t, uint8_t);
 
 	// get ArtNet uni settings
-	byte getNet(uint8_t);
-	byte getSubNet(uint8_t);
-	byte getUni(uint8_t, uint8_t);
+	uint8_t getNet(uint8_t);
+	uint8_t getSubNet(uint8_t);
+	uint8_t getUni(uint8_t, uint8_t);
 
 	// set network settings
 	void setIP(IPAddress, IPAddress);
@@ -262,7 +263,7 @@ public:
 	void sendDMX(uint8_t, uint8_t, IPAddress, uint8_t*, uint16_t);
 
 private:
-	artnet_device* _art = 0;
+	artnet_device* _art = nullptr;
 
 	int _artOpCode(unsigned char*);
 	void _artIPProgReply();
@@ -285,6 +286,3 @@ private:
 
 	WiFiUDP eUDP;
 };
-
-
-#endif

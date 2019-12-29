@@ -13,12 +13,7 @@ You should have received a copy of the GNU General Public License along with thi
 If not, see http://www.gnu.org/licenses/
 */
 
-
-
-#ifndef rdmDataTypes_h
-#define rdmDataTypes_h
-
-#define byte uint8_t
+#pragma once
 
 enum rdm_tod_state {
   RDM_TOD_NOT_READY,
@@ -28,30 +23,30 @@ enum rdm_tod_state {
 
 union rdm_data_ {
   struct {
-    uint16_t StartCode;  // Start Code 0xCC01 for RDM
-    byte     Length;       // packet length
+    uint16_t StartCode;    // Start Code 0xCC01 for RDM
+    uint8_t  Length;       // packet length
     uint16_t DestMan;
     uint32_t DestDev;
     uint16_t SourceMan;
     uint32_t SourceDev;
-    byte     TransNo;      // transaction number, not checked
-    byte     ResponseType; // ResponseType
-    byte     MsgCount;     // Message count
+    uint8_t  TransNo;      // transaction number, not checked
+    uint8_t  ResponseType; // ResponseType
+    uint8_t  MsgCount;     // Message count
     uint16_t SubDev;       // sub device number (root = 0) 
-    byte     CmdClass;     // command class
-    uint16_t PID;       // parameter ID
-    byte     DataLength;   // parameter data length in bytes
-    byte     Data[231];    // data byte field
+    uint8_t  CmdClass;     // command class
+    uint16_t PID;          // parameter ID
+    uint8_t  DataLength;   // parameter data length in uint8_ts
+    uint8_t  Data[231];     // data uint8_t field
   } __attribute__((packed)) packet;
-  
+
   struct {
-    byte headerFE;
-    byte headerAA;
-    byte maskedDevID[12];
-    byte maskedChecksum[4];
+    uint8_t headerFE;
+    uint8_t headerAA;
+    uint8_t maskedDevID[12];
+    uint8_t maskedChecksum[4];
   } __attribute__((packed)) discovery;
-  
-  byte buffer[255];
+
+  uint8_t buffer[255];
 
   void endianFlip(void) {
     // 16 bit flips
@@ -68,4 +63,3 @@ union rdm_data_ {
 };
 typedef union rdm_data_ rdm_data;
 
-#endif
