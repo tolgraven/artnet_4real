@@ -37,7 +37,8 @@ void _artSetPacketHeader(uint8_t* packet, uint32_t opcode) { // common bit of he
 	packet[9] = opcode >> 8;
 }
 
-espArtNetRDM::espArtNetRDM() {
+espArtNetRDM::espArtNetRDM():
+  _art(new artnet_device) {
 }
 
 espArtNetRDM::~espArtNetRDM() {
@@ -51,20 +52,11 @@ void espArtNetRDM::end() {
 
 	for (uint8_t g = 0; g < _art->numGroups; g++) {
 		for (uint8_t p = 0; p < 4; p++) {
-			if (_art->group[g]->ports[p] == 0)
-				continue;
-
-			if (_art->group[g]->ports[p]->ownBuffer)
-				os_free(_art->group[g]->ports[p]->dmxBuffer);
-
-			os_free(_art->group[g]->ports[p]->ipBuffer);
-			os_free(_art->group[g]->ports[p]);
+			if (_art->group[g]->ports[p])
+				delete _art->group[g]->ports[p];
 		}
-		os_free(_art->group[g]);
+		delete _art->group[g];
 	}
-	os_free(_art);
-
-	_art = 0;
 }
 
 void espArtNetRDM::init(IPAddress ip, IPAddress subnet, bool dhcp, char* shortname, char* longname, uint16_t oem, uint16_t esta, uint8_t* mac) {
@@ -88,9 +80,6 @@ void espArtNetRDM::init(IPAddress ip, IPAddress subnet, bool dhcp, char* shortna
 	_art->oemHi = (uint8_t)(oem >> 8);
 	_art->estaLo = (uint8_t)esta;
 	_art->estaHi = (uint8_t)(esta >> 8);
-	_art->syncIP = INADDR_NONE;
-	_art->lastSync = 0;
-	_art->nextPollReply = 0;
 	memcpy(_art->shortName, shortname, ARTNET_SHORT_NAME_LENGTH);
 	memcpy(_art->longName, longname, ARTNET_LONG_NAME_LENGTH);
 	memcpy(_art->deviceMAC, mac, 6);
@@ -121,17 +110,9 @@ uint8_t espArtNetRDM::addGroup(uint8_t net, uint8_t subnet) {
 
 	uint8_t g = _art->numGroups;
 
-	_art->group[g] = (group_def*)os_malloc(sizeof(group_def));
+	_art->group[g] = new group_def;
 	_art->group[g]->netSwitch = net & 0b01111111;
 	_art->group[g]->subnet = subnet;
-	_art->group[g]->numPorts = 0;
-	_art->group[g]->cancelMergeIP = INADDR_NONE;
-	_art->group[g]->cancelMerge = 0;
-	_art->group[g]->cancelMergeTime = 0;
-
-	for (int x = 0; x < 4; x++)
-		_art->group[g]->ports[x] = 0;
-
 	_art->numGroups++;
 
 	return g;
@@ -146,49 +127,10 @@ uint8_t espArtNetRDM::addPort(uint8_t g, uint8_t p, uint8_t universe, uint8_t t,
 
 	group_def* group = _art->group[g];
 
-	// Check if port is already initialised, return its port number
-	if (group->ports[p] != 0)
-		return p;
+	if (group->ports[p]) return p; // Check if port is already initialised, return its port number
 
-	// Allocate space for our port
-	group->ports[p] = (port_def*)os_malloc(sizeof(port_def));
-
-	delay(1);
-	port_def* port = group->ports[p];
-
-	// DMX output buffer allocation
-	if (buf == 0) {
-		port->dmxBuffer = (uint8_t*)os_malloc(DMX_BUFFER_SIZE);
-		port->ownBuffer = true;
-	}
-	else {
-		port->dmxBuffer = buf;
-		port->ownBuffer = false;
-	}
-
-	// Clear the buffer
-	_artClearDMXBuffer(port->dmxBuffer);
-
-
-	// Store settings
+	group->ports[p] = new port_def(universe, (port_type)t, buf, htp);
 	group->numPorts++;
-	port->portType = t;
-	port->mergeHTP = htp;
-	port->portUni = universe;
-	port->senderIP[0] = INADDR_NONE;
-	port->senderIP[1] = INADDR_NONE;
-
-	for (uint8_t x = 0; x < 5; x++)
-		port->rdmSenderIP[x] = INADDR_NONE;
-
-	port->ipBuffer = 0;
-	port->ipChans[0] = 0;
-	port->ipChans[1] = 0;
-	port->dmxChans = 0;
-	port->merging = 0;
-	port->lastTodCommand = 0;
-	port->uidTotal = 0;
-	port->todAvailable = 0;
 
 	return p;
 }
@@ -198,22 +140,10 @@ bool espArtNetRDM::closePort(uint8_t g, uint8_t p) {
 
 	group_def* group = _art->group[g];
 
-	// Port already closed
-	if (group->ports[p] == 0)
-		return true;
+	if (!group->ports[p]) return true; // Port already closed
 
-	// Delete buffers
-	if (group->ports[p]->ownBuffer)
-		os_free(group->ports[p]->dmxBuffer);
-	if (group->ports[p]->ipBuffer != 0)
-		os_free(group->ports[p]->ipBuffer);
-
-	os_free(group->ports[p]);
-
-	// Mark port as empty
-	group->ports[p] = 0;
+  delete group->ports[p];
 	group->numPorts--;
-	group->ports[p] == 0;
 
 	return true;
 }

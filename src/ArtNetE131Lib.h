@@ -36,7 +36,7 @@ using ArtAddressCallback	= std::function<void()>;
 using ArtTodRequestCallback	= std::function<void(uint8_t, uint8_t)>;
 using ArtTodFlushCallback	= std::function<void(uint8_t, uint8_t)>;
 
-enum port_type {
+enum port_type : uint8_t {
 	RECEIVE_DMX = 0,   // = receive DMX from ArtNet
 	RECEIVE_RDM = 1,   // = receive RDM from ArtNet
 	SEND_DMX = 2     // = send DMX to ArtNet
@@ -51,11 +51,22 @@ enum protocol_type : uint8_t   // private enum
 
 
 struct _port_def {
+	_port_def(uint8_t universe, port_type t = RECEIVE_DMX,
+				uint8_t* buf = nullptr, bool htp = true):
+		portType(t), portUni(universe),
+		dmxBuffer(buf? buf: new uint8_t[DMX_BUFFER_SIZE]{0}),
+		ownBuffer(buf? true: false),
+		mergeHTP(htp) {
+	}
+	~_port_def() {
+		if(ownBuffer) delete dmxBuffer;
+		if(ipBuffer)  delete ipBuffer;
+	}
 	// DMX out/in or RDM out
-	uint8_t portType;
+	uint8_t portType = RECEIVE_DMX;
 
 	// ArtNet or sACN
-	uint8_t protocol;
+	uint8_t protocol = ARTNET;
 
 	// sACN settings
 	uint16_t e131Uni;
@@ -66,30 +77,30 @@ struct _port_def {
 	uint8_t portUni;
 
 	// DMX final values buffer
-	uint8_t* dmxBuffer;
-	uint16_t dmxChans;
-	bool ownBuffer;
-	bool mergeHTP;
-	bool merging;
+	uint8_t* dmxBuffer = nullptr;
+	uint16_t dmxChans = 0;
+	bool ownBuffer = true;
+	bool mergeHTP = true;
+	bool merging = 0;
 
 	// ArtDMX input buffers for 2 IPs
-	uint8_t* ipBuffer;
-	uint16_t ipChans[2];
+	uint8_t* ipBuffer = nullptr;
+	uint16_t ipChans[2]{0};
 
 	// IPs for current data + time of last packet
-	IPAddress senderIP[2];
+	IPAddress senderIP[2]{INADDR_NONE};
 	unsigned long lastPacketTime[2];
 
 	// IPs for the last 5 RDM commands
-	IPAddress rdmSenderIP[5];
+	IPAddress rdmSenderIP[5]{INADDR_NONE};
 	unsigned long rdmSenderTime[5];
 
 	// RDM Variables
-	bool todAvailable;
-	uint16_t uidTotal;
+	bool todAvailable = false;
+	uint16_t uidTotal = 0;
 	uint16_t uidMan[50];
 	uint32_t uidSerial[50];
-	unsigned long lastTodCommand;
+	unsigned long lastTodCommand = 0;
 };
 
 typedef struct _port_def port_def;
@@ -99,12 +110,12 @@ struct _group_def {
 	uint8_t netSwitch = 0x00;
 	uint8_t subnet = 0x00;
 
-	port_def* ports[4] = { 0,0,0,0 };
+	port_def* ports[ARTNET_GROUP_MAX_PORTS]{nullptr};
 	uint8_t numPorts = 0;
 
-	IPAddress cancelMergeIP;
-	bool cancelMerge;
-	unsigned long cancelMergeTime;
+	IPAddress cancelMergeIP = INADDR_NONE;
+	bool cancelMerge = false;
+	unsigned long cancelMergeTime = 0;
 };
 
 typedef struct _group_def group_def;
@@ -117,8 +128,8 @@ struct _artnet_def {
 	IPAddress rdmIP[5];
 	uint8_t rdmIPcount;
 
-	IPAddress syncIP;
-	unsigned long lastSync;
+	IPAddress syncIP = INADDR_NONE;
+	unsigned long lastSync = 0;
 
 	uint8_t deviceMAC[6];
 	bool dhcp = true;
@@ -131,14 +142,14 @@ struct _artnet_def {
 	uint8_t estaHi;
 	uint8_t estaLo;
 
-	group_def* group[16];
-	uint8_t numGroups;
+	group_def* group[ARTNET_MAX_GROUPS];
+	uint8_t numGroups = 0;
 	uint32_t lastIPProg;
-	uint32_t nextPollReply;
+	uint32_t nextPollReply = 0;
 
-	uint16_t firmWareVersion;
-	uint32_t nodeReportCounter;
-	uint16_t nodeReportCode;
+	uint16_t firmWareVersion = 0;
+	uint32_t nodeReportCounter = 0;
+	uint16_t nodeReportCode = ARTNET_RC_POWER_OK;
 	char nodeReport[ARTNET_NODE_REPORT_LENGTH];
 
 	// callback functions
