@@ -20,8 +20,11 @@ If not, see http://www.gnu.org/licenses/
 
 void _artClearDMXBuffer(uint8_t* buf) {
 	memset(buf, 0, DMX_BUFFER_SIZE);
-	//for (uint16_t x = 0; x < DMX_BUFFER_SIZE; x++)
-	//  buf[x] = 0;
+}
+
+void _artSetPacketIP(uint8_t* packet, uint16_t offset, const IPAddress& ip) {
+  for(uint8_t i = 0; i < 4; i++)
+    packet[offset + i] = ip[i];    // ip address
 }
 
 void _artSetPacketHeader(uint8_t* packet, uint32_t opcode) { // common bit of header only
@@ -288,31 +291,29 @@ void espArtNetRDM::_artPoll() {
 		return;
 	_art->nextPollReply = millis() + 2000;
 
-	unsigned char _artReplyBuffer[ARTNET_REPLY_SIZE]{0};
-  _artSetPacketHeader(_artReplyBuffer, ARTNET_ARTPOLL_REPLY);
-	_artReplyBuffer[10] = _art->deviceIP[0];        	// ip address
-	_artReplyBuffer[11] = _art->deviceIP[1];
-	_artReplyBuffer[12] = _art->deviceIP[2];
-	_artReplyBuffer[13] = _art->deviceIP[3];
-	_artReplyBuffer[14] = 0x36;               		// port lo first always 0x1936
-	_artReplyBuffer[15] = 0x19;
-	_artReplyBuffer[16] = _art->firmWareVersion >> 8;     // firmware hi-lo
-	_artReplyBuffer[17] = _art->firmWareVersion;
-	_artReplyBuffer[20] = _art->oemHi;                    // oem hi-lo
-	_artReplyBuffer[21] = _art->oemLo;
-	_artReplyBuffer[22] = 0;              		// ubea
+	uint8_t artReplyBuffer[ARTNET_REPLY_SIZE] = {0};
+  _artSetPacketHeader(artReplyBuffer, ARTNET_ARTPOLL_REPLY);
+  _artSetPacketIP(artReplyBuffer, 10, getIP());    // ip address
+  
+	artReplyBuffer[14] = 0x36;               		// port lo first always 0x1936
+	artReplyBuffer[15] = 0x19;
+	artReplyBuffer[16] = _art->firmWareVersion >> 8;     // firmware hi-lo
+	artReplyBuffer[17] = _art->firmWareVersion;
+	artReplyBuffer[20] = _art->oemHi;                    // oem hi-lo
+	artReplyBuffer[21] = _art->oemLo;
+	artReplyBuffer[22] = 0;              		// ubea
 
-	_artReplyBuffer[23] = 0b11110010;			// Device is RDM Capable
-	_artReplyBuffer[24] = _art->estaLo;           	// ESTA Code (2 uint8_ts)
-	_artReplyBuffer[25] = _art->estaHi;
+	artReplyBuffer[23] = 0b11110010;			// Device is RDM Capable
+	artReplyBuffer[24] = _art->estaLo;           	// ESTA Code (2 uint8_ts)
+	artReplyBuffer[25] = _art->estaHi;
 
-	//short name
-	for (int x = 0; x < ARTNET_SHORT_NAME_LENGTH; x++)
-		_artReplyBuffer[x + 26] = _art->shortName[x];
+  memcpy(artReplyBuffer + 26, _art->shortName, ARTNET_SHORT_NAME_LENGTH);
+	/* for (int x = 0; x < ARTNET_SHORT_NAME_LENGTH; x++) */
+	/* 	artReplyBuffer[x + 26] = _art->shortName[x]; */
 
-	//long name
-	for (int x = 0; x < ARTNET_LONG_NAME_LENGTH; x++)
-		_artReplyBuffer[x + 44] = _art->longName[x];
+  memcpy(artReplyBuffer + 44, _art->longName, ARTNET_LONG_NAME_LENGTH);
+	/* for (int x = 0; x < ARTNET_LONG_NAME_LENGTH; x++) */
+	/* 	artReplyBuffer[x + 44] = _art->longName[x]; */
 
 	// node report - send blank
 	for (int x = 0; x < ARTNET_NODE_REPORT_LENGTH; x++) {
@@ -335,56 +336,50 @@ void espArtNetRDM::_artPoll() {
 	// Format counter and add to reply buffer
 	uint8_t x = 0;
 	for (x = 0; tmp[x] != '\0' && x < 6; x++)
-		_artReplyBuffer[x + 114] = tmp[x];
+		artReplyBuffer[x + 114] = tmp[x];
 
 	uint8_t rLen = ARTNET_NODE_REPORT_LENGTH - x - 2;
-	x = x + 114;
+	x += 114;
 
-	_artReplyBuffer[x++] = ']';
-	_artReplyBuffer[x++] = ' ';
+	artReplyBuffer[x++] = ']';
+	artReplyBuffer[x++] = ' ';
 
 	// Append plain text report
 	for (uint8_t y = 0; y < rLen && _art->nodeReport[y] != '\0'; y++)
-		_artReplyBuffer[x++] = _art->nodeReport[y];
+		artReplyBuffer[x++] = _art->nodeReport[y];
 
-	/* _artReplyBuffer[172] = 0;             //number of ports Hi (always 0) */
-	/* _artReplyBuffer[200] = 0;             // Style - 0x00 = DMX to/from Artnet */
+	/* artReplyBuffer[172] = 0;             //number of ports Hi (always 0) */
+	/* artReplyBuffer[200] = 0;             // Style - 0x00 = DMX to/from Artnet */
 
-	for (int x = 0; x < 6; x++)           // MAC Address
-		_artReplyBuffer[201 + x] = _art->deviceMAC[x];
+  memcpy(artReplyBuffer + 201, _art->deviceMAC, 6);// MAC Address
 
-	_artReplyBuffer[207] = _art->deviceIP[0];        // bind ip
-	_artReplyBuffer[208] = _art->deviceIP[1];
-	_artReplyBuffer[209] = _art->deviceIP[2];
-	_artReplyBuffer[210] = _art->deviceIP[3];
+  _artSetPacketIP(artReplyBuffer, 207, getIP());    // ip address
 
-	_artReplyBuffer[212] = (_art->dhcp) ? 31 : 29;  // status 2
+	artReplyBuffer[212] = (_art->dhcp) ? 31 : 29;  // status 2
 
-	for (int x = 213; x < ARTNET_REPLY_SIZE; x++)
-		_artReplyBuffer[x] = 0;             // Reserved for future - transmit 0
-
+	/* for (int x = 213; x < ARTNET_REPLY_SIZE; x++) */
+	/* 	artReplyBuffer[x] = 0;             // Reserved for future - transmit 0 */
 
 	  // Set values for each group of ports and send artPollReply
 	for (uint8_t groupNum = 0; groupNum < _art->numGroups; groupNum++) {
 		group_def* group = _art->group[groupNum];
 
-		if (group->numPorts == 0)
-			continue;
+		if (group->numPorts == 0) continue;
 
-		_artReplyBuffer[18] = group->netSwitch;       // net
-		_artReplyBuffer[19] = group->subnet;          // subnet
-		_artReplyBuffer[173] = group->numPorts;       //number of ports (Lo uint8_t)
+		artReplyBuffer[18] = group->netSwitch;       // net
+		artReplyBuffer[19] = group->subnet;          // subnet
+		artReplyBuffer[173] = group->numPorts;       //number of ports (Lo uint8_t)
 
-		_artReplyBuffer[211] = groupNum + 1;    	  // Bind Index
+		artReplyBuffer[211] = groupNum + 1;    	  // Bind Index
 
 		// Port details
-		for (int port = 0; port < 4; port++) {
+		for (int port = 0; port < ARTNET_GROUP_MAX_PORTS; port++) {
 
 			// Send blank values for empty ports
-      for(auto i: {174, 178, 182, 186, 190})
-        _artReplyBuffer[i + port] = 0;
+      /* for(auto i: {174, 178, 182, 186, 190}) */
+      /*   artReplyBuffer[i + port] = 0; */
 
-			if (group->ports[port] == 0) continue; // This port isn't in use
+			if (!group->ports[port]) continue; // This port isn't in use
 
 			// DMX or RDM out port
 			if (group->ports[port]->portType != SEND_DMX) {
@@ -400,26 +395,24 @@ void espArtNetRDM::_artPoll() {
 				if (group->ports[port]->protocol != ARTNET)
 					go |= 1;						// sACN
 
-				_artReplyBuffer[174 + port] |= 128;			//Port Type (128 = DMX out)
-				_artReplyBuffer[182 + port] = go;				//Good output (128 = data being transmitted)
-				_artReplyBuffer[190 + port] = group->ports[port]->portUni;  	// swOut - port address
+				artReplyBuffer[174 + port] |= 128;			//Port Type (128 = DMX out)
+				artReplyBuffer[182 + port] = go;				//Good output (128 = data being transmitted)
+				artReplyBuffer[190 + port] = group->ports[port]->portUni;  	// swOut - port address
 
 			  // DMX In port info
-			}
-			else if (group->ports[port]->portType == SEND_DMX) {
-				_artReplyBuffer[174 + port] |= 64;				// Port type (64 = DMX in)
+			} else if (group->ports[port]->portType == SEND_DMX) {
+				artReplyBuffer[174 + port] |= 64;				// Port type (64 = DMX in)
 
 				if (group->ports[port]->dmxChans != 0)
-					_artReplyBuffer[178 + port] = 128;       		// Good input (128 = data being received)
+					artReplyBuffer[178 + port] = 128;       		// Good input (128 = data being received)
 
-				_artReplyBuffer[186] = group->ports[0]->portUni;  	// swIn
-
+				artReplyBuffer[186] = group->ports[0]->portUni;  	// swIn
 			}
 		}
 
 		// Send packet
 		eUDP.beginPacket(_art->broadcastIP, ARTNET_PORT);
-		eUDP.write(_artReplyBuffer, ARTNET_REPLY_SIZE);
+		eUDP.write(artReplyBuffer, ARTNET_REPLY_SIZE);
 		eUDP.endPacket();
 
 		delay(0);
@@ -647,22 +640,12 @@ void espArtNetRDM::_artIPProg(unsigned char *_artBuffer) {
 
 void espArtNetRDM::_artIPProgReply() {
 	// Initialise our reply
-	char ipProgReply[ARTNET_IP_PROG_REPLY_SIZE]{0};
+	uint8_t ipProgReply[ARTNET_IP_PROG_REPLY_SIZE] = {0};
   _artSetPacketHeader(ipProgReply, ARTNET_IP_PROG_REPLY);
 
 	ipProgReply[11] = 14;                 // artNet version (14)
-	ipProgReply[12] = 0;
-	ipProgReply[13] = 0;
-	ipProgReply[14] = 0;
-	ipProgReply[15] = 0;
-	ipProgReply[16] = _art->deviceIP[0];  // ip address
-	ipProgReply[17] = _art->deviceIP[1];
-	ipProgReply[18] = _art->deviceIP[2];
-	ipProgReply[19] = _art->deviceIP[3];
-	ipProgReply[20] = _art->subnet[0];    // subnet address
-	ipProgReply[21] = _art->subnet[1];
-	ipProgReply[22] = _art->subnet[2];
-	ipProgReply[23] = _art->subnet[3];
+  _artSetPacketIP(ipProgReply, 16, getIP());         // ip address
+  _artSetPacketIP(ipProgReply, 20, getSubnetMask()); // subnet address
 	ipProgReply[26] = (_art->dhcp) ? (1 << 6) : 0;  // DHCP enabled
 
 	// Send packet
