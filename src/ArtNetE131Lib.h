@@ -106,6 +106,8 @@ struct _port_def {
 typedef struct _port_def port_def;
 
 struct _group_def {
+	_group_def() {}
+	~_group_def() { for(auto port: ports) delete port; }
 	// Port Address
 	uint8_t netSwitch = 0x00;
 	uint8_t subnet = 0x00;
@@ -121,6 +123,8 @@ struct _group_def {
 typedef struct _group_def group_def;
 
 struct _artnet_def {
+	_artnet_def() {}
+	~_artnet_def() { for(auto gr: group) delete gr; }
 
 	IPAddress deviceIP;
 	IPAddress subnet;
@@ -169,18 +173,12 @@ typedef struct _artnet_def artnet_device;
 
 class espArtNetRDM {
 public:
-	espArtNetRDM();
+	espArtNetRDM(): _art(new artnet_device) {} //still makes sense having a sep init so can eg create then wait until online and got IP, and is needed before actual allocs etc
 	~espArtNetRDM();
 
 	void init(IPAddress ip, IPAddress sub, uint8_t* mac, bool dhcp,
 				const char* shortName, const char* longName, uint16_t oem, uint16_t esta);
-	void init(const char* name, uint16_t oem = ARTNET_DEFAULT_OEM, uint16_t esta = ARTNET_DEFAULT_ESTA_MAN) {
-		IPAddress ip = WiFi.localIP();
-		IPAddress sub = WiFi.subnetMask();
-		uint8_t mac[6];
-		WiFi.macAddress(mac);
-		init(ip, sub, mac, true, name, name, oem, esta);
-	};
+	void init(const char* name, uint16_t oem = ARTNET_DEFAULT_OEM, uint16_t esta = ARTNET_DEFAULT_ESTA_MAN);
 
 	void setFirmwareVersion(uint16_t);
 	void setDefaultIP();

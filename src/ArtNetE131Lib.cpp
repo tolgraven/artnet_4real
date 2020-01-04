@@ -28,38 +28,14 @@ void _artSetPacketIP(uint8_t* packet, uint16_t offset, const IPAddress& ip) {
 }
 
 void _artSetPacketHeader(uint8_t* packet, uint32_t opcode) { // common bit of header only
-	packet[0] = 'A';
-	packet[1] = 'r';
-	packet[2] = 't';
-	packet[3] = '-';
-	packet[4] = 'N';
-	packet[5] = 'e';
-	packet[6] = 't';
-	packet[7] = 0;
+  strcpy((char*)packet, ARTNET_ID);
 	packet[8] = opcode;      	// op code lo-hi
 	packet[9] = opcode >> 8;
 }
 
-espArtNetRDM::espArtNetRDM():
-  _art(new artnet_device) {
-}
 
 espArtNetRDM::~espArtNetRDM() {
-	end();
-}
-
-void espArtNetRDM::end() {
-	if (!_art) return;
-
 	eUDP.stopAll();
-
-	for (uint8_t g = 0; g < _art->numGroups; g++) {
-		for (uint8_t p = 0; p < 4; p++) {
-			if (_art->group[g]->ports[p])
-				delete _art->group[g]->ports[p];
-		}
-		delete _art->group[g];
-	}
 }
 
 void espArtNetRDM::init(IPAddress ip, IPAddress subnet, uint8_t* mac, bool dhcp, const char* shortname, const char* longname, uint16_t oem, uint16_t esta) {
@@ -71,10 +47,19 @@ void espArtNetRDM::init(IPAddress ip, IPAddress subnet, uint8_t* mac, bool dhcp,
 	_art->oemHi = (uint8_t)(oem >> 8);
 	_art->estaLo = (uint8_t)esta;
 	_art->estaHi = (uint8_t)(esta >> 8);
-	memcpy(_art->shortName, shortname, ARTNET_SHORT_NAME_LENGTH);
-	memcpy(_art->longName, longname, ARTNET_LONG_NAME_LENGTH);
+  strncpy(_art->shortName, shortname, ARTNET_SHORT_NAME_LENGTH - 1); //nullchar?
+  strncpy(_art->longName,  longname,  ARTNET_LONG_NAME_LENGTH - 1);
 	memcpy(_art->deviceMAC, mac, 6);
 }
+
+
+void espArtNetRDM::init(const char* name, uint16_t oem, uint16_t esta) {
+  IPAddress ip = WiFi.localIP();
+  IPAddress sub = WiFi.subnetMask();
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
+  init(ip, sub, mac, true, name, name, oem, esta);
+};
 
 void espArtNetRDM::setFirmwareVersion(uint16_t fw) {
 	_art->firmWareVersion = fw;
