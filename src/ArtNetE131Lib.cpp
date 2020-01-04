@@ -117,31 +117,31 @@ bool espArtNetRDM::closePort(uint8_t g, uint8_t p) {
 }
 
 void espArtNetRDM::setArtDMXCallback(ArtDMXCallback callback) {
-	_art->dmxCallback = callback;
+	dmxCallback = callback;
 }
 
 void espArtNetRDM::setArtSyncCallback(ArtSyncCallback callback) {
-	_art->syncCallback = callback;
+	syncCallback = callback;
 }
 
 void espArtNetRDM::setArtRDMCallback(ArtRDMCallback callback) {
-	_art->rdmCallback = callback;
+	rdmCallback = callback;
 }
 
 void espArtNetRDM::setArtIPCallback(ArtIPCallback callback) {
-	_art->ipCallback = callback;
+	ipCallback = callback;
 }
 
 void espArtNetRDM::setArtAddressCallback(ArtAddressCallback callback) {
-	_art->addressCallback = callback;
+	addressCallback = callback;
 }
 
 void espArtNetRDM::setTODRequestCallback(ArtTodRequestCallback callback) {
-	_art->todRequestCallback = callback;
+	todRequestCallback = callback;
 }
 
 void espArtNetRDM::setTODFlushCallback(ArtTodFlushCallback callback) {
-	_art->todFlushCallback = callback;
+	todFlushCallback = callback;
 }
 
 void espArtNetRDM::begin() {
@@ -527,6 +527,8 @@ void espArtNetRDM::_saveDMX(unsigned char *dmxData, uint16_t numberOfChannels, u
 
 		//    _art->syncIP = rIP;
 	}
+  if(dmxCallback)
+    dmxCallback(groupNum, portNum, numberOfChannels, sync);
 }
 
 uint8_t* espArtNetRDM::getDMX(uint8_t g, uint8_t p) {
@@ -576,14 +578,9 @@ void espArtNetRDM::_artIPProg(unsigned char *_artBuffer) {
 	}
 
 	// Run callback - must be before reply for correct dhcp setting
-	if (_art->ipCallback != 0)
-		_art->ipCallback();
-
-	// Send reply
-	_artIPProgReply();
-
-	// Send artPollReply
-	artPollReply();
+	if (ipCallback) ipCallback();
+	_artIPProgReply(); // Send reply
+	_artPollReply(); // Send artPollReply
 }
 
 void espArtNetRDM::_artIPProgReply() {
@@ -737,21 +734,18 @@ void espArtNetRDM::_artAddress(unsigned char *_artBuffer) {
 
 	}
 
-	// Send reply
-	artPollReply();
-
-	// Run callback
-	if (_art->addressCallback != 0)
-		_art->addressCallback();
+	_artPollReply();
+	if (addressCallback) addressCallback();
 }
 
 void espArtNetRDM::_artSync(unsigned char *_artBuffer) {
 	// Update sync timer
 	_art->lastSync = millis();
 
-	// Run callback
-	if (_art->syncCallback != 0)// && _art->syncIP == eUDP.remoteIP())
-		_art->syncCallback();
+  // ip must be same as last dmx packet.
+  // sync is ignored when merging.
+	if (syncCallback) // && _art->syncIP == eUDP.remoteIP())
+		syncCallback();
 }
 
 void espArtNetRDM::_artFirmwareMaster(unsigned char *_artBuffer) {
@@ -871,8 +865,8 @@ void espArtNetRDM::_artTODControl(unsigned char *_artBuffer) {
 	_artTODRequest(_artBuffer);
 }
 
-void espArtNetRDM::_artRDM(unsigned char *_artBuffer, uint16_t packetSize) {
-	if (!_art->rdmCallback) return;
+void espArtNetRDM::_artRDM(uint8_t* data, uint16_t packetSize) {
+	if (!rdmCallback) return;
 
 	IPAddress remoteIp = eUDP.remoteIP();
 

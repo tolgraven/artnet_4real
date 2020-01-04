@@ -155,15 +155,6 @@ struct _artnet_def {
 	uint32_t nodeReportCounter = 0;
 	uint16_t nodeReportCode = ARTNET_RC_POWER_OK;
 	char nodeReport[ARTNET_NODE_REPORT_LENGTH];
-
-	// callback functions
-	ArtDMXCallback dmxCallback;
-	ArtSyncCallback syncCallback;
-	ArtRDMCallback rdmCallback;
-	ArtIPCallback ipCallback;
-	ArtAddressCallback addressCallback;
-	ArtTodRequestCallback todRequestCallback;
-	ArtTodFlushCallback todFlushCallback;
 };
 
 typedef struct _artnet_def artnet_device;
@@ -277,4 +268,12 @@ private:
 	uint8_t _dmxSeqID = 0;
 
 	WiFiUDP eUDP;
+
+	ArtDMXCallback dmxCallback;
+	ArtSyncCallback syncCallback;
+	ArtRDMCallback rdmCallback;
+	ArtIPCallback ipCallback;
+	ArtAddressCallback addressCallback;
+	ArtTodRequestCallback todRequestCallback;
+	ArtTodFlushCallback todFlushCallback;
 };
