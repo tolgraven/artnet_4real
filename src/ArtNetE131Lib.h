@@ -193,7 +193,7 @@ public:
 	void setE131Uni(uint8_t, uint8_t, uint16_t);
 
 	// handler function for including in loop()
-	void handler();
+	int handler();
 
 	// set callback functions
 	void setArtDMXCallback(ArtDMXCallback callback);

@@ -157,21 +157,16 @@ void espArtNetRDM::pause() {
 	eUDP.stopAll();
 }
 
-void espArtNetRDM::handler() {
-	if (!_art) return;
+int espArtNetRDM::handler() {
+	uint16_t packetSize = eUDP.parsePacket(); // look for artnet packet.
+  int opCode = 0;
 
-	// Artnet packet
-	uint16_t packetSize = eUDP.parsePacket();
+	if (packetSize > 0 && packetSize <= ARTNET_BUFFER_MAX) {
 
-	if (packetSize > 0) {
+		uint8_t data[ARTNET_BUFFER_MAX];
 
-		unsigned char _artBuffer[ARTNET_BUFFER_MAX];
-
-		// Read data into buffer
-		eUDP.read(_artBuffer, packetSize);
-
-		// Get the Op Code
-		int opCode = _artOpCode(_artBuffer);
+		eUDP.read(data, packetSize);
+		opCode = _artOpCode(data);
 
 		switch (opCode) {
       case ARTNET_ARTPOLL:  // The Controller may assume a maximum timeout of 3 seconds between sending ArtPoll and receiving all ArtPollReply packets. If the Controller does not receive a response in this time it should consider the Node to have disconnecte
@@ -193,6 +188,7 @@ void espArtNetRDM::handler() {
 	// Send artPollReply - the function will limit the number sent
 	_artPollReply(); // is that really to spec...?
 
+  return opCode;
 }
 
 int espArtNetRDM::_artOpCode(uint8_t* data) {
