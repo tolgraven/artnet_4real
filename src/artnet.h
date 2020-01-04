@@ -32,6 +32,10 @@ If not, see http://www.gnu.org/licenses/
 
 #define ARTNET_MAX_GROUPS 16
 #define ARTNET_GROUP_MAX_PORTS 4
+#define ARTNET_DEFAULT_OEM  0x00ff          // Artnet OEM code - "unknown"
+#define ARTNET_DEFAULT_ESTA_MAN 0x7fff      // ESTA Manufacturer code - "prototyping reserved"
+#define ARTNET_DEFAULT_ESTA_DEV 0xEE000000  // RDM Device ID (used with Man Code to make 48bit UID)
+#define ARTNET_ID "Art-Net"
 
 // Artnet Op Codes
 #define ARTNET_ARTPOLL 0x2000
@@ -53,6 +57,42 @@ If not, see http://www.gnu.org/licenses/
 #define ARTNET_IP_PROG 0xF800
 #define ARTNET_IP_PROG_REPLY 0xF900
 
+#define OpPoll             0x2000  // This is an ArtPoll packet, no other data is contained in this UDP packet
+#define OpPollReply        0x2100  // This is an ArtPollReply Packet. It contains device status information.
+#define OpDiagData         0x2300  // Diagnostics and data logging packet.
+#define OpCommand          0x2400  // Used to send text based parameter commands.
+#define OpOutput           0x5000  // This is an ArtDmx data packet. It contains zero start code DMX512 information for a single Universe.
+#define OpDmx              0x5000  // This is an ArtDmx data packet. It contains zero start code DMX512 information for a single Universe.
+#define OpNzs              0x5100  // This is an ArtNzs data packet. It contains non-zero start code (except RDM) DMX512 information for a single Universe.
+#define OpAddress          0x6000  // This is an ArtAddress packet. It contains remote programming information for a Node.
+#define OpInput            0x7000  // This is an ArtInput packet. It contains enable – disable data for DMX inputs.
+#define OpTodRequest       0x8000  // This is an ArtTodRequest packet. It is used to request a Table of Devices (ToD) for RDM discovery.
+#define OpTodData          0x8100  // This is an ArtTodData packet. It is used to send a Table of Devices (ToD) for RDM discovery.
+#define OpTodControl       0x8200  // This is an ArtTodControl packet. It is used to send RDM discovery control messages.
+#define OpRdm              0x8300  // This is an ArtRdm packet. It is used to send all non discovery RDM messages.
+#define OpRdmSub           0x8400  // This is an ArtRdmSub packet. It is used to send compressed, RDM Sub-Device data.
+#define OpVideoSetup       0xa010  // This is an ArtVideoSetup packet. It contains video screen setup information for nodes that implement the extended video features.
+#define OpVideoPalette     0xa020  // This is an ArtVideoPalette packet. It contains colour palette setup information for nodes that implement the extended video features.
+#define OpVideoData        0xa040  // This is an ArtVideoData packet. It contains display data for nodes that implement the extended video features.
+#define OpMacMaster        0xf000  // This is an ArtMacMaster packet. It is used to program the Node’s MAC address, Oem device type and ESTA manufacturer code. This is for factory initialisation of a Node. It is not to be used by applications.
+#define OpMacSlave         0xf100  // This is an ArtMacSlave packet. It is returned by the node to acknowledge receipt of an ArtMacMaster packet.
+#define OpFirmwareMaster   0xf200  // This is an ArtFirmwareMaster packet. It is used to upload new firmware or firmware extensions to the Node.
+#define OpFirmwareReply    0xf300  // This is an ArtFirmwareReply packet. It is returned by the node to acknowledge receipt of an ArtFirmwareMaster packet or ArtFileTnMaster packet.
+#define OpFileTnMaster     0xf400  // Uploads user file to node.
+#define OpFileFnMaster     0xf500  // Downloads user file from node.
+#define OpFileFnReply      0xf600  // Node acknowledge for downloads.
+#define OpIpProg           0xf800  // This is an ArtIpProg packet. It is used to reprogramme the IP, Mask and Port address of the Node.
+#define OpIpProgReply      0xf900  // This is an ArtIpProgReply packet. It is returned by the node to acknowledge receipt of an ArtIpProg packet.
+#define OpMedia            0x9000  // This is an ArtMedia packet. It is Unicast by a Media Server and acted upon by a Controller.
+#define OpMediaPatch       0x9100  // This is an ArtMediaPatch packet. It is Unicast by a Controller and acted upon by a Media Server.
+#define OpMediaControl     0x9200  // This is an ArtMediaControl packet. It is Unicast by a Controller and acted upon by a Media Server.
+#define OpMediaContrlReply 0x9300  // This is an ArtMediaControlReply packet. It is Unicast by a Media Server and acted upon by a Controller.
+#define OpTimeCode         0x9700  // This is an ArtTimeCode packet. It is used to transport time code over the network.
+#define OpTimeSync         0x9800  // Used to synchronise real time date and clock
+#define OpTrigger          0x9900  // Used to send trigger macros
+#define OpDirectory        0x9a00  // Requests a node's file list
+#define OpDirectoryReply   0x9b00  // Replies to OpDirectory with file list
+
 // Artnet Node Report Codes
 #define ARTNET_RC_DEBUG 0x0000
 #define ARTNET_RC_POWER_OK 0x0001
@@ -60,6 +100,16 @@ If not, see http://www.gnu.org/licenses/
 #define ARTNET_RC_SH_NAME_OK 0x0006
 #define ARTNET_RC_LO_NAME_OK 0x0007
 #define ARTNET_RC_FIRMWARE_FAIL 0x000E
+#define RcSocketWr1    0x0003  // Last UDP from Node failed due to truncated length, Most likely caused by a collision.
+#define RcParseFail    0x0004  // Unable to identify last UDP transmission. Check OpCode and \packet length.
+#define RcUdpFail      0x0005  // Unable to open Udp Socket in last transmission attempt
+#define RcDmxError     0x0008  // DMX512 receive errors detected.
+#define RcDmxUdpFull   0x0009  // Ran out of internal DMX transmit buffers.
+#define RcDmxRxFull    0x000a  // Ran out of internal DMX Rx buffers.
+#define RcSwitchErr    0x000b  // Rx Universe switches conflict.
+#define RcConfigErr    0x000c  // Product configuration does not match firmware.
+#define RcDmxShort     0x000d  // DMX output short detected. See GoodOutput field.
+#define RcUserFail     0x000f  // User changed switch settings when address locked by remote programming. User changes ignored.
 
 // Artnet Command Codes
 #define ARTNET_AC_NONE 0x00
@@ -88,4 +138,20 @@ If not, see http://www.gnu.org/licenses/
 #define ARTNET_AC_ACN_SEL_1 0x71
 #define ARTNET_AC_ACN_SEL_2 0x72
 #define ARTNET_AC_ACN_SEL_3 0x73
+
+// Artnet ArtPoll and ArtDiagData priority codes
+#define ARTNET_DP_LOW 0x10
+#define ARTNET_DP_MED 0x40
+#define ARTNET_DP_HIGH 0x80
+#define ARTNET_DP_CRITICAL 0xe0
+#define ARTNET_DP_VOLATILE 0xf0
+
+
+#define ARTNET_ST_NODE       0x00  // regular Art-Net device
+#define ARTNET_ST_CONTROLLER 0x01  // console.
+#define ARTNET_ST_MEDIA      0x02  // Media Server.
+#define ARTNET_ST_ROUTE      0x03  // network routing device.
+#define ARTNET_ST_BACKUP     0x04  // backup device.
+#define ARTNET_ST_CONFIG     0x05  // configuration or diagnostic tool.
+#define ARTNET_ST_VISUAL     0x06  // visualiser.
 
