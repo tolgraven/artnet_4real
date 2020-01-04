@@ -371,15 +371,12 @@ void espArtNetRDM::_saveDMX(uint8_t* dmxData, uint16_t numberOfChannels,
 
 	unsigned long timeNow = millis();
 
-	// We can't do the next calculations until after 10 seconds
+	// We can't do the next calculations until after 10 seconds - XXX compare against our start, not boot...
 	if (timeNow > 10000) {
-		unsigned long timeExp = timeNow - 10000;
-
-		// Clear IPs that we haven't heard from in over 10 seconds
-		if (port->lastPacketTime[0] < timeExp)
-			port->senderIP[0] = INADDR_NONE;
-		else if (port->lastPacketTime[1] < timeExp)
-			port->senderIP[1] = INADDR_NONE;
+    for(uint8_t i=0; i < 2; i++) { // used to be if/else if but wouldnt that lead to senderIP[1] never clearing if [0] times out?
+      if(port->lastPacketTime[i] < timeNow - 10000) // is is some inscrutable logic below based on that? lol
+        port->senderIP[i] = INADDR_NONE;
+    }
 	}
 
 	// Get a sender ID
@@ -394,89 +391,58 @@ void espArtNetRDM::_saveDMX(uint8_t* dmxData, uint16_t numberOfChannels,
 	}
 	else if (port->senderIP[0] == INADDR_NONE) {
 		senderID = 0;
-		port->senderIP[0] = rIP;
+		port->senderIP[0] = rIP; //dont understand why none should be classed same as rIP? 
 		port->lastPacketTime[0] = timeNow;
 	}
 
-	// This is a third IP so drop the packet (Artnet v4 only allows for merging 2 DMX streams)
-	if (senderID == 255)
-		return;
+	// This is a different IP, so drop the packet (Artnet v4 only allows for merging 2 DMX streams)
+	if (senderID == 255) return;
 
 	// Check if we're merging (the other IP will be non zero)
-	if (port->senderIP[(senderID ^ 0x01)] == INADDR_NONE)
-		port->merging = false;
-	else
-		port->merging = true;
-
+	port->merging = (port->senderIP[(senderID ^ 0x01)] == INADDR_NONE);
 
 	// Cancel merge is old so cancel the cancel merge
-	if ((group->cancelMergeTime + ARTNET_CANCEL_MERGE_TIMEOUT) < millis()) {
+	if ((group->cancelMergeTime + ARTNET_CANCEL_MERGE_TIMEOUT) < timeNow) {
 		group->cancelMerge = false;
 		group->cancelMergeIP = INADDR_NONE;
 
-	}
-	else {
+	} else {
 		// This is the correct IP, enable cancel merge
 		if (group->cancelMergeIP == port->senderIP[senderID]) {
-			group->cancelMerge = 1;
-			group->cancelMergeTime = millis();
+			group->cancelMerge = true; // this is already set when command handled in _artAddress. why repeat here?
+			group->cancelMergeTime = timeNow;
 			port->mergeHTP = false;
 			port->merging = false;
 
 			// If the merge is current & IP isn't correct, ignore this packet
-		}
-		else if (group->cancelMerge)
-			return;
+		} else if (group->cancelMerge) return;
 	}
 
 	// Store number of channels
-	if (numberOfChannels > port->dmxChans)
-		port->dmxChans = numberOfChannels;
+  port->dmxChans = max(port->dmxChans, numberOfChannels);
 
-	// Check if we should merge (HTP) or not merge (LTP)
-	if (port->merging && port->mergeHTP) {
-		// Check if there is a buffer.  If not, allocate and clear it
-		if (port->ipBuffer == 0) {
+  bool sync = false;
+	if (port->merging && port->mergeHTP) {     // Check if we should merge (HTP) or not merge (LTP)
+		if (!port->ipBuffer) {                   // Check if there is a buffer.  If not, allocate and clear it
+			port->ipBuffer = new uint8_t[2 * DMX_BUFFER_SIZE]{0};
+		}
+    int offset = senderID * DMX_BUFFER_SIZE + startChannel;
+		memcpy(&port->ipBuffer[offset], dmxData, numberOfChannels);
 
-			port->ipBuffer = (uint8_t*)os_malloc(2 * DMX_BUFFER_SIZE);
-			delay(0);
-			_artClearDMXBuffer(port->ipBuffer);
-			_artClearDMXBuffer(&port->ipBuffer[DMX_BUFFER_SIZE]);
-			delay(0);
+		numberOfChannels = max(port->dmxChans, numberOfChannels); // Get the number of channels to compare
+
+		for (uint16_t x = 0; x < numberOfChannels; x++) {         // Compare data and put in the output buffer
+			port->dmxBuffer[x] = max(port->ipBuffer[x], port->ipBuffer[x + DMX_BUFFER_SIZE]);
 		}
 
-		// Put data into our buffer
-		memcpy(&port->ipBuffer[senderID * DMX_BUFFER_SIZE + startChannel], dmxData, numberOfChannels);
-
-		// Get the number of channels to compare
-		numberOfChannels = (port->dmxChans > numberOfChannels) ? port->dmxChans : numberOfChannels;
-
-		// Compare data and put in the output buffer
-		for (uint16_t x = 0; x < numberOfChannels; x++)
-			port->dmxBuffer[x] = (port->ipBuffer[x] > port->ipBuffer[x + DMX_BUFFER_SIZE]) ? port->ipBuffer[x] : port->ipBuffer[x + DMX_BUFFER_SIZE];
-
-		// Call our dmx callback in the main script (Sync doesn't get used when merging)
-		_art->dmxCallback(groupNum, portNum, numberOfChannels, false);
-
-	}
-	else {
-		// Copy data directly into output buffer
+	} else { // No merge: copy data directly into output buffer
 		memcpy(&port->dmxBuffer[startChannel], dmxData, numberOfChannels);
 
-		/*
-			// Delete merge buffer if it exists
-			if (port->ipBuffer != 0) {
-			  os_free(port->ipBuffer);
-			  port->ipBuffer = 0;
-			}
-		*/
+    // Delete merge buffer if it exists -- should be done when merging ends...
+    /* if (port->ipBuffer) { delete port->ipBuffer; } */
 
 		// Check if Sync is enabled and call dmx callback in the main script
-		if (_art->lastSync == 0 || (_art->lastSync + 4000) < timeNow || _art->syncIP != rIP)
-			_art->dmxCallback(groupNum, portNum, numberOfChannels, false);
-		else
-			_art->dmxCallback(groupNum, portNum, numberOfChannels, true);
-
+    sync = (_art->lastSync > 0 && _art->lastSync < timeNow - 4000 && _art->syncIP == rIP);
 		//    _art->syncIP = rIP;
 	}
   if(dmxCallback)
