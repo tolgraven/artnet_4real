@@ -240,7 +240,6 @@ public:
 	bool getDHCP();
 
 	void setNodeReport(char*, uint16_t);
-	void artPollReply();
 
 	void sendDMX(uint8_t, uint8_t, IPAddress, uint8_t*, uint16_t);
 

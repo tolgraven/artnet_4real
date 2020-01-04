@@ -174,52 +174,24 @@ void espArtNetRDM::handler() {
 		int opCode = _artOpCode(_artBuffer);
 
 		switch (opCode) {
-
-		case ARTNET_ARTPOLL:
-			// This is always called at the end of this function
-				//_artPoll();
-			break;
-
-		case ARTNET_ARTDMX:
-			_artDMX(_artBuffer);
-			break;
-
-		case ARTNET_IP_PROG:
-			_artIPProg(_artBuffer);
-			break;
-
-		case ARTNET_ADDRESS:
-			_artAddress(_artBuffer);
-			break;
-
-		case ARTNET_SYNC:
-			_artSync(_artBuffer);
-			break;
-
-		case ARTNET_FIRMWARE_MASTER:
-			_artFirmwareMaster(_artBuffer);
-			break;
-
-		case ARTNET_TOD_REQUEST:
-			_artTODRequest(_artBuffer);
-			break;
-
-		case ARTNET_TOD_CONTROL:
-			_artTODControl(_artBuffer);
-			break;
-
-		case ARTNET_RDM:
-			_artRDM(_artBuffer, packetSize);
-			break;
-
-		case ARTNET_RDM_SUB:
-			_artRDMSub(_artBuffer);
-			break;
+      case ARTNET_ARTPOLL:  // The Controller may assume a maximum timeout of 3 seconds between sending ArtPoll and receiving all ArtPollReply packets. If the Controller does not receive a response in this time it should consider the Node to have disconnecte
+        _artPollReply(true);  //XXX unlimit. maybe force arg if want to keep periodic behavior.  // was named just artpoll but thats not what we're sending...
+        break;              // so spamming out every 2s as below ought work but not spec. immediate reply is the intent.    // so spamming out every 2s as below ought work but not spec. immediate reply (+one on boot) is the intent. wonder why they went this route.
+                            // controllers should send every 2.5-3s tho
+      case ARTNET_ARTDMX:   _artDMX(data); break;
+      case ARTNET_IP_PROG:  _artIPProg(data); break;
+      case ARTNET_ADDRESS:  _artAddress(data); break;
+      case ARTNET_SYNC:     _artSync(data); break;
+      case ARTNET_FIRMWARE_MASTER: _artFirmwareMaster(data); break;
+      case ARTNET_TOD_REQUEST: _artTODRequest(data); break;
+      case ARTNET_TOD_CONTROL: _artTODControl(data); break;
+      case ARTNET_RDM:      _artRDM(data, packetSize); break;
+      case ARTNET_RDM_SUB:  _artRDMSub(data); break;
 		}
 	}
 
 	// Send artPollReply - the function will limit the number sent
-	_artPoll();
+	_artPollReply(); // is that really to spec...?
 
 }
 
@@ -233,10 +205,9 @@ int espArtNetRDM::_artOpCode(uint8_t* data) {
 }
 
 
-void espArtNetRDM::_artPoll() {
+void espArtNetRDM::_artPollReply(bool force) {
 	// limit the number of artPollReply messages
-	if (_art->nextPollReply > millis())
-		return;
+	if (!force && _art->nextPollReply > millis()) return;
 	_art->nextPollReply = millis() + 2000;
 
 	uint8_t artReplyBuffer[ARTNET_REPLY_SIZE] = {0};
@@ -256,30 +227,26 @@ void espArtNetRDM::_artPoll() {
 	artReplyBuffer[25] = _art->estaHi;
 
   memcpy(artReplyBuffer + 26, _art->shortName, ARTNET_SHORT_NAME_LENGTH);
-	/* for (int x = 0; x < ARTNET_SHORT_NAME_LENGTH; x++) */
-	/* 	artReplyBuffer[x + 26] = _art->shortName[x]; */
-
   memcpy(artReplyBuffer + 44, _art->longName, ARTNET_LONG_NAME_LENGTH);
-	/* for (int x = 0; x < ARTNET_LONG_NAME_LENGTH; x++) */
-	/* 	artReplyBuffer[x + 44] = _art->longName[x]; */
 
-	// node report - send blank
-	for (int x = 0; x < ARTNET_NODE_REPORT_LENGTH; x++) {
-		_artReplyBuffer[x + 108] = 0;
-	}
-
+	// node report - send blank - well not if we have something to report no??
+	/* for (int x = 0; x < ARTNET_NODE_REPORT_LENGTH; x++) { */
+	/* 	artReplyBuffer[x + 108] = 0; */
+	/* } */
 
 	// Set reply code
-	char tmp[7];
-	sprintf(tmp, "%04x", _art->nodeReportCode);
-	_artReplyBuffer[108] = '#';
-  memcpy(_artReplyBuffer + 109, tmp, 4);
-	_artReplyBuffer[113] = '[';
+	char tmp[7]; //XXX beware here too whether char vs uint
+	sprintf(tmp, "#%04x[", _art->nodeReportCode);
+  memcpy(artReplyBuffer + 108, tmp, 7);
+  /* strcpy(artReplyBuffer + 108, tmp); */
+	/* sprintf(tmp, "%04x", _art->nodeReportCode); */
+	/* artReplyBuffer[108] = '#'; */
+  /* memcpy(artReplyBuffer + 109, tmp, 4); */
+	/* artReplyBuffer[113] = '['; */
 
 	// Max 6 digits for counter - could be longer if wanted
 	sprintf(tmp, "%d", _art->nodeReportCounter++);
-	if (_art->nodeReportCounter > 999999)
-		_art->nodeReportCounter = 0;
+	if (_art->nodeReportCounter > 999999) _art->nodeReportCounter = 0;
 
 	// Format counter and add to reply buffer
 	uint8_t x = 0;
@@ -313,6 +280,8 @@ void espArtNetRDM::_artPoll() {
 		group_def* group = _art->group[groupNum];
 
 		if (group->numPorts == 0) continue;
+    // there are no group offsets here so if multiple groups it'll just get overwritten??
+    // or actually worse cause it's bitshifting stuff in place??
 
 		artReplyBuffer[18] = group->netSwitch;       // net
 		artReplyBuffer[19] = group->subnet;          // subnet
@@ -321,40 +290,36 @@ void espArtNetRDM::_artPoll() {
 		artReplyBuffer[211] = groupNum + 1;    	  // Bind Index
 
 		// Port details
-		for (int port = 0; port < ARTNET_GROUP_MAX_PORTS; port++) {
+		for (int p = 0; p < ARTNET_GROUP_MAX_PORTS; p++) {
+      port_def* port = group->ports[p];
 
 			// Send blank values for empty ports
       /* for(auto i: {174, 178, 182, 186, 190}) */
-      /*   artReplyBuffer[i + port] = 0; */
+      /*   artReplyBuffer[i + p] = 0; */
 
-			if (!group->ports[port]) continue; // This port isn't in use
+			if (!port) continue; // This port isn't in use
 
-			// DMX or RDM out port
-			if (group->ports[port]->portType != SEND_DMX) {
+			if (port->portType != SEND_DMX) { // DMX or RDM out port
 
 				// Get values for Good Output field
 				uint8_t go = 0;
-				if (group->ports[port]->dmxChans != 0)
-					go |= 128;						// data being transmitted
-				if (group->ports[port]->merging)
-					go |= 8;						// artnet data being merged
-				if (!group->ports[port]->mergeHTP)
-					go |= 2;						// Merge mode LTP
-				if (group->ports[port]->protocol != ARTNET)
-					go |= 1;						// sACN
+				if (port->dmxChans != 0)      go |= 128;	// data being transmitted
+				if (port->merging)            go |= 8;		// artnet data being merged
+				if (!port->mergeHTP)          go |= 2;		// Merge mode LTP
+				if (port->protocol != ARTNET) go |= 1;		// sACN. Should stay in whether or not lib retains support - artnet itself supports flag.
 
-				artReplyBuffer[174 + port] |= 128;			//Port Type (128 = DMX out)
-				artReplyBuffer[182 + port] = go;				//Good output (128 = data being transmitted)
-				artReplyBuffer[190 + port] = group->ports[port]->portUni;  	// swOut - port address
+				artReplyBuffer[174 + p] |= 128;			      // Port Type (128 = DMX out)
+				artReplyBuffer[182 + p] = go;				      // Good output (128 = data being transmitted)
+				artReplyBuffer[190 + p] = port->portUni;  // swOut - port address
 
 			  // DMX In port info
-			} else if (group->ports[port]->portType == SEND_DMX) {
-				artReplyBuffer[174 + port] |= 64;				// Port type (64 = DMX in)
+			} else if (port->portType == SEND_DMX) {
+				artReplyBuffer[174 + p] |= 64;				    // Port type (64 = DMX in)
 
-				if (group->ports[port]->dmxChans != 0)
-					artReplyBuffer[178 + port] = 128;       		// Good input (128 = data being received)
+				if (port->dmxChans != 0)
+					artReplyBuffer[178 + p] = 128;       		// Good input (128 = data being received)
 
-				artReplyBuffer[186] = group->ports[0]->portUni;  	// swIn
+				artReplyBuffer[186] = group->ports[0]->portUni; //XXX using ports[0] not p? 	// swIn
 			}
 		}
 
@@ -363,7 +328,7 @@ void espArtNetRDM::_artPoll() {
 		eUDP.write(artReplyBuffer, ARTNET_REPLY_SIZE);
 		eUDP.endPacket();
 
-		delay(0);
+		delay(0); // is yield necessary?
 	}
 }
 
