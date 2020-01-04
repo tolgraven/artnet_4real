@@ -94,7 +94,6 @@ uint8_t espArtNetRDM::addPort(uint8_t g, uint8_t p, uint8_t universe, uint8_t t,
 		return 255;
 
 	group_def* group = _art->group[g];
-
 	if (group->ports[p]) return p; // Check if port is already initialised, return its port number
 
 	group->ports[p] = new port_def(universe, (port_type)t, buf, htp);
@@ -104,14 +103,11 @@ uint8_t espArtNetRDM::addPort(uint8_t g, uint8_t p, uint8_t universe, uint8_t t,
 }
 
 bool espArtNetRDM::closePort(uint8_t g, uint8_t p) {
-	if (g >= _art->numGroups) return false;
+	if (g >= _art->numGroups) return false; //seems off? if reply means "yup port was/is now closed"
+	if (!getPort(g, p)) return true; // Port already closed
 
-	group_def* group = _art->group[g];
-
-	if (!group->ports[p]) return true; // Port already closed
-
-  delete group->ports[p];
-	group->numPorts--;
+  delete getPort(g, p);
+	_art->group[g]->numPorts--;
 
 	return true;
 }
@@ -227,14 +223,12 @@ void espArtNetRDM::handler() {
 
 }
 
-int espArtNetRDM::_artOpCode(unsigned char *_artBuffer) {
-	String test = String((char*)_artBuffer);
-	if (test.equals("Art-Net")) {
-		if (_artBuffer[11] >= 14) {                 //protocol version [10] hi uint8_t [11] lo uint8_t
-			return _artBuffer[9] * 256 + _artBuffer[8];  //opcode lo uint8_t first
+int espArtNetRDM::_artOpCode(uint8_t* data) {
+	if (String((char*)data) == ARTNET_ID) {
+		if (data[11] >= 14) {                 //protocol version [10] hi uint8_t [11] lo uint8_t
+			return data[9] * 256 + data[8];  //opcode lo uint8_t first
 		}
 	}
-
 	return 0;
 }
 
@@ -248,7 +242,7 @@ void espArtNetRDM::_artPoll() {
 	uint8_t artReplyBuffer[ARTNET_REPLY_SIZE] = {0};
   _artSetPacketHeader(artReplyBuffer, ARTNET_ARTPOLL_REPLY);
   _artSetPacketIP(artReplyBuffer, 10, getIP());    // ip address
-  
+
 	artReplyBuffer[14] = 0x36;               		// port lo first always 0x1936
 	artReplyBuffer[15] = 0x19;
 	artReplyBuffer[16] = _art->firmWareVersion >> 8;     // firmware hi-lo
@@ -374,46 +368,39 @@ void espArtNetRDM::_artPoll() {
 }
 
 
-void espArtNetRDM::artPollReply() {
-	if (!_art) return;
-
-	_artPoll();
-}
-
-void espArtNetRDM::_artDMX(unsigned char *_artBuffer) {
-	group_def* group = 0;
-
+void espArtNetRDM::_artDMX(uint8_t* data) {
 	IPAddress rIP = eUDP.remoteIP();
 
-	uint8_t net = (_artBuffer[15] & 0x7F);
-	uint8_t sub = (_artBuffer[14] >> 4);
-	uint8_t uni = (_artBuffer[14] & 0x0F);
+	uint8_t net = (data[15] & 0x7F);
+	uint8_t sub = (data[14] >> 4);
+	uint8_t uni = (data[14] & 0x0F);
 
 	// Number of channels hi uint8_t first
-	uint16_t numberOfChannels = _artBuffer[17] + (_artBuffer[16] << 8);
+	uint16_t numberOfChannels = data[17] + (data[16] << 8);
 	uint16_t startChannel = 0;
 
-	// Loop through all groups
-	for (int x = 0; x < _art->numGroups; x++) {
-		if (net == _art->group[x]->netSwitch && sub == _art->group[x]->subnet) {
-			group = _art->group[x];
+	for (int g = 0; g < _art->numGroups; g++) { // Loop through all groups
+    auto group = _art->group[g];
+		if (net != group->netSwitch || sub != group->subnet)
+      continue;
 
-			// Loop through each port
-			for (int y = 0; y < 4; y++) {
-				if (group->ports[y] == 0 || group->ports[y]->portType == SEND_DMX)
-					continue;
+    for (int p = 0; p < ARTNET_GROUP_MAX_PORTS; p++) { // Loop through each port
+      auto port = getPort(g, p);
+      if (!port || port->portType == SEND_DMX)
+        continue;
 
-				// If this port has the correct Net, Sub & Uni then save DMX to buffer
-				if (uni == group->ports[y]->portUni)
-					_saveDMX(&_artBuffer[ARTNET_ADDRESS_OFFSET], numberOfChannels, x, y, rIP, startChannel);
-			}
-		}
+      // If this port has the correct Net, Sub & Uni then save DMX to buffer
+      if (uni == port->portUni)
+        _saveDMX(data + ARTNET_ADDRESS_OFFSET, numberOfChannels, g, p, rIP, startChannel);
+    }
 	}
 }
 
-void espArtNetRDM::_saveDMX(unsigned char *dmxData, uint16_t numberOfChannels, uint8_t groupNum, uint8_t portNum, IPAddress rIP, uint16_t startChannel) {
-	group_def* group = _art->group[groupNum];
-	port_def* port = group->ports[portNum];
+void espArtNetRDM::_saveDMX(uint8_t* dmxData, uint16_t numberOfChannels,
+                            uint8_t groupNum, uint8_t portNum,
+                            IPAddress rIP, uint16_t startChannel) {
+	auto group = _art->group[groupNum];
+	auto port = group->ports[portNum];
 
 	uint8_t senderID = 255;  // Will be set to 0 or 1 if valid later
 
@@ -532,43 +519,40 @@ void espArtNetRDM::_saveDMX(unsigned char *dmxData, uint16_t numberOfChannels, u
 }
 
 uint8_t* espArtNetRDM::getDMX(uint8_t g, uint8_t p) {
-	if (g < _art->numGroups && _art->group[g]->ports[p]) {
-    return _art->group[g]->ports[p]->dmxBuffer;
+	if (g < _art->numGroups && getPort(g, p)) {
+    return getPort(g, p)->dmxBuffer;
 	}
-	return NULL;
+	return nullptr;
 }
 
 uint16_t espArtNetRDM::numChans(uint8_t g, uint8_t p) {
-	if (g < _art->numGroups && _art->group[g]->ports[p]) {
-    return _art->group[g]->ports[p]->dmxChans;
+	if (g < _art->numGroups && getPort(g, p)) {
+    return getPort(g, p)->dmxChans;
 	}
 	return 0;
 }
 
-void espArtNetRDM::_artIPProg(unsigned char *_artBuffer) {
+void espArtNetRDM::_artIPProg(uint8_t* data) {
 	// Don't do anything if it's the same command again
 	if ((_art->lastIPProg + 20) > millis())
 		return;
 	_art->lastIPProg = millis();
 
-	uint8_t command = _artBuffer[14];
+	uint8_t command = data[14];
 
-	// Enable DHCP
-	if ((command & 0b11000000) == 0b11000000) {
+	if ((command & 0b11000000) == 0b11000000) { // Enable DHCP
 		_art->dhcp = true;
 
-		// Disable DHCP
-	}
-	else if ((command & 0b11000000) == 0b10000000) {
+	} else if ((command & 0b11000000) == 0b10000000) { // Disable DHCP
 		_art->dhcp = false;
 
 		// Program IP
 		if ((command & 0b10000100) == 0b10000100)
-			_art->deviceIP = IPAddress(_artBuffer[16], _artBuffer[17], _artBuffer[18], _artBuffer[19]);
+			_art->deviceIP = IPAddress(data[16], data[17], data[18], data[19]);
 
 		// Program subnet
 		if ((command & 0b10000010) == 0b10000010) {
-			_art->subnet = IPAddress(_artBuffer[20], _artBuffer[21], _artBuffer[22], _artBuffer[23]);
+			_art->subnet = IPAddress(data[20], data[21], data[22], data[23]);
 			_art->broadcastIP = IPAddress((uint32_t)_art->deviceIP | ~((uint32_t)_art->subnet));
 		}
 
@@ -599,148 +583,143 @@ void espArtNetRDM::_artIPProgReply() {
 	eUDP.endPacket();
 }
 
-void espArtNetRDM::_artAddress(unsigned char *_artBuffer) {
-	// _artBuffer[13]    bindIndex
-	uint8_t g = _artBuffer[13] - 1;
+void espArtNetRDM::_artAddress(uint8_t* data) {
+	uint8_t g = data[13] - 1;
+  group_def* group = _art->group[g];
 
-	// Set net switch
-	if ((_artBuffer[12] & 0x80) == 0x80)
-		_art->group[g]->netSwitch = _artBuffer[12] & 0x7F;
-
-	// Set short name
-	if (_artBuffer[14] != '\0') {
-		for (int x = 0; x < ARTNET_SHORT_NAME_LENGTH; x++)
-			_art->shortName[x] = _artBuffer[x + 14];
+	if ((data[12] & 0x80) == 0x80) { // Set net switch
+		group->netSwitch = data[12] & 0x7F;
+	}
+	if (data[14] != '\0') { // Set short name
+    memcpy(_art->shortName, data + 14, ARTNET_SHORT_NAME_LENGTH);
+	}
+	if (data[32] != '\0') { // Set long name
+    memcpy(_art->longName, data + 32, ARTNET_LONG_NAME_LENGTH);
 	}
 
-	// Set long name
-	if (_artBuffer[32] != '\0') {
-		for (int x = 0; x < ARTNET_LONG_NAME_LENGTH; x++)
-			_art->longName[x] = _artBuffer[x + 32];
+	for (int x = 0; x < ARTNET_GROUP_MAX_PORTS; x++) { // Set Port Address
+		if ((data[100 + x] & 0xF0) == 0x80 && group->ports[x])
+			group->ports[x]->portUni = data[100 + x] & 0x0F;
 	}
 
-	// Set Port Address
-	for (int x = 0; x < 4; x++) {
-		if ((_artBuffer[100 + x] & 0xF0) == 0x80 && _art->group[g]->ports[x] != 0)
-			_art->group[g]->ports[x]->portUni = _artBuffer[100 + x] & 0x0F;
-	}
-
-	// Set subnet
-	if ((_artBuffer[104] & 0xF0) == 0x80) {
-		_art->group[g]->subnet = _artBuffer[104] & 0x0F;
+	if ((data[104] & 0xF0) == 0x80) { // Set subnet
+		group->subnet = data[104] & 0x0F;
 	}
 
 	// Get port number
-	uint8_t p = _artBuffer[106] & 0x0F;
+	uint8_t p = data[106] & 0x0F;
+  port_def* port = group->ports[p];
 
-	// Command
-	switch (_artBuffer[106]) {
-	case ARTNET_AC_CANCEL_MERGE:
-		_art->group[g]->cancelMergeTime = millis();
-		_art->group[g]->cancelMergeIP = eUDP.remoteIP();
+  uint8_t command = data[106];
+	switch (command) { // Command
+	case ARTNET_AC_CANCEL_MERGE: {        // a sender has requested we stop merging in the other sender
+		group->cancelMergeTime = millis();  // this will happen on next packet
+		group->cancelMergeIP = eUDP.remoteIP();
 
 		/*
 		for (int x = 0; x < 4; x++) {
-		  if (_art->group[g]->ports[x] == 0)
+		  if (group->ports[x] == 0)
 			continue;
 
 		  // Delete merge buffer if it exists
-		  if (_art->group[g]->ports[x]->ipBuffer != 0) {
-			os_free(_art->group[g]->ports[x]->ipBuffer);
-			_art->group[g]->ports[x]->ipBuffer = 0;
+		  if (group->ports[x]->ipBuffer != 0) {
+			os_free(group->ports[x]->ipBuffer);
+			group->ports[x]->ipBuffer = 0;
 		  }
 
 		  // Update our timer variables
-		  _art->group[g]->ports[x]->lastPacketTime[0] = 0;
-		  _art->group[g]->ports[x]->lastPacketTime[1] = 0;
+		  group->ports[x]->lastPacketTime[0] = 0;
+		  group->ports[x]->lastPacketTime[1] = 0;
 		}
 		*/
 		break;
+  }
 
 	case ARTNET_AC_MERGE_LTP_0:
 	case ARTNET_AC_MERGE_LTP_1:
 	case ARTNET_AC_MERGE_LTP_2:
-	case ARTNET_AC_MERGE_LTP_3:
-		if (_art->group[g]->ports[p] != 0) {
-			// Delete merge buffer if it exists
-			if (_art->group[g]->ports[p]->ipBuffer != 0) {
-				os_free(_art->group[g]->ports[p]->ipBuffer);
-				_art->group[g]->ports[p]->ipBuffer = 0;
-			}
+	case ARTNET_AC_MERGE_LTP_3: {
+		if (port) {
+      // Delete merge buffer if it exists
+      delete port->ipBuffer;
+      port->ipBuffer = nullptr;
 
 			// Update our timer variables
-			_art->group[g]->ports[p]->lastPacketTime[0] = 0;
-			_art->group[g]->ports[p]->lastPacketTime[1] = 0;
+			port->lastPacketTime[0] = 0;
+			port->lastPacketTime[1] = 0;
 
 			// Set to LTP
-			_art->group[g]->ports[p]->mergeHTP = false;
+			port->mergeHTP = false;
 
-			// Cancel the cancel merge
-			_art->group[g]->cancelMerge = 0;
-			_art->group[g]->cancelMergeIP = INADDR_NONE;
+			// Cancel any pending cancel merge
+			group->cancelMerge = 0;
+			group->cancelMergeIP = INADDR_NONE;
 		}
 		break;
+	}
 
 	case ARTNET_AC_MERGE_HTP_0:
 	case ARTNET_AC_MERGE_HTP_1:
 	case ARTNET_AC_MERGE_HTP_2:
-	case ARTNET_AC_MERGE_HTP_3:
+	case ARTNET_AC_MERGE_HTP_3: {
+    uint16_t pid = command - ARTNET_AC_MERGE_HTP_0; //well no but fix. easy get port index by offset see command layout.
 		// Set to HTP
-		if (_art->group[g]->ports[p] != 0) {
-			_art->group[g]->ports[p]->mergeHTP = true;
+		if (port) {
+			port->mergeHTP = true;
 
-			// Cancel the cancel merge
-			_art->group[g]->cancelMerge = 0;
-			_art->group[g]->cancelMergeIP = INADDR_NONE;
+			// Cancel any pending cancel merge
+			group->cancelMerge = 0;
+			group->cancelMergeIP = INADDR_NONE;
 		}
 		break;
+	}
 
 	case ARTNET_AC_CLEAR_OP_0:
 	case ARTNET_AC_CLEAR_OP_1:
 	case ARTNET_AC_CLEAR_OP_2:
-	case ARTNET_AC_CLEAR_OP_3:
-		if (_art->group[g]->ports[p] == 0) {
+	case ARTNET_AC_CLEAR_OP_3: {
+		/* if (port == 0) { */
+		if (port) { //this was !port per above. cant be right??
 			// Delete merge buffer if it exists
-			if (_art->group[g]->ports[p]->ipBuffer != 0) {
-				os_free(_art->group[g]->ports[p]->ipBuffer);
-				_art->group[g]->ports[p]->ipBuffer = 0;
-			}
+      delete port->ipBuffer; // i guess in this instance we do actually need to nullptr-set it tho
+      port->ipBuffer = nullptr;
 
 			// Clear the DMX output buffer
-			_artClearDMXBuffer(_art->group[g]->ports[p]->dmxBuffer);
+			_artClearDMXBuffer(port->dmxBuffer);
 		}
 		break;
+	}
 
 
 	case ARTNET_AC_ARTNET_SEL_0:
 	case ARTNET_AC_ARTNET_SEL_1:
 	case ARTNET_AC_ARTNET_SEL_2:
-	case ARTNET_AC_ARTNET_SEL_3:
-		for (uint8_t x = 0; x < 4; x++) {
-			if (_art->group[g]->ports[x] == 0)
+	case ARTNET_AC_ARTNET_SEL_3: {
+		for (uint8_t x = 0; x < ARTNET_GROUP_MAX_PORTS; x++) {
+			if (group->ports[x] == 0) //XXX again super weird check??
 				setProtocolType(g, x, protocol_type::ARTNET);
 		}
 		break;
+	}
 
-	case ARTNET_AC_ACN_SEL_0:
+	case ARTNET_AC_ACN_SEL_0:  //yup actually part of artnet! sacn dmx, but art rdm
 	case ARTNET_AC_ACN_SEL_1:
 	case ARTNET_AC_ACN_SEL_2:
-	case ARTNET_AC_ACN_SEL_3:
-		for (uint8_t x = 0; x < 4; x++) {
-			if (_art->group[g]->ports[p] == 0)
-				setProtocolType(g, p, protocol_type::SACN_UNICAST);
+	case ARTNET_AC_ACN_SEL_3: {
+		for (uint8_t x = 0; x < ARTNET_GROUP_MAX_PORTS; x++) {
+			if (port == 0) //XXX and here
+				setProtocolType(g, x, protocol_type::SACN_UNICAST);
 		}
 		break;
-
+	}
 	}
 
 	_artPollReply();
 	if (addressCallback) addressCallback();
 }
 
-void espArtNetRDM::_artSync(unsigned char *_artBuffer) {
-	// Update sync timer
-	_art->lastSync = millis();
+void espArtNetRDM::_artSync(uint8_t* data) {
+	_art->lastSync = millis(); //times out after 4s. should it be micros?
 
   // ip must be same as last dmx packet.
   // sync is ignored when merging.
@@ -748,61 +727,48 @@ void espArtNetRDM::_artSync(unsigned char *_artBuffer) {
 		syncCallback();
 }
 
-void espArtNetRDM::_artFirmwareMaster(unsigned char *_artBuffer) {
+void espArtNetRDM::_artFirmwareMaster(uint8_t* data) {
 	//Serial.println("artFirmwareMaster");
 }
 
-void espArtNetRDM::_artTODRequest(unsigned char *_artBuffer) {
-	uint8_t net = _artBuffer[21];
-	group_def* group;
-
-	uint8_t numAddress = _artBuffer[23];
+void espArtNetRDM::_artTODRequest(uint8_t* data) {
+	uint8_t net = data[21];
+	uint8_t numAddress = data[23];
 	uint8_t addr = 24;
 
 	// Handle artTodControl requests
-	if (_artOpCode(_artBuffer) == ARTNET_TOD_CONTROL) {
+	if (_artOpCode(data) == ARTNET_TOD_CONTROL) {
 		numAddress = 1;
 		addr = 23;
 	}
 
 	for (int g = 0; g < _art->numGroups; g++) {
-		group = _art->group[g];
+    group_def* group = _art->group[g];
+		if (group->netSwitch != net)
+      continue;
 
-		// Net matches so loop through the addresses
-		if (group->netSwitch == net) {
-			for (int y = 0; y < numAddress; y++) {
+    for (int a = 0; a < numAddress; a++) { // Net matches so loop through the addresses
 
-				// Subnet doesn't match, try the next address
-				if (group->subnet != (_artBuffer[addr + y] >> 4))
-					continue;
+      // Subnet doesn't match, try the next address
+      if (group->subnet != (data[addr + a] >> 4))
+        continue;
 
-				// Subnet matches so loop through the 4 ports and check universe
-				for (int p = 0; p < 4; p++) {
+      // Subnet matches so loop through the 4 ports and check universe
+      for (int p = 0; p < ARTNET_GROUP_MAX_PORTS; p++) {
+        port_def* port = group->ports[p];
+        if (!port || port->portUni != (data[addr + a] & 0x0F))
+          continue; // No port, or universe doesnt match.
 
-					if (group->ports[p] == 0)
-						continue;
+        port->lastTodCommand = millis();
 
-					port_def* port = group->ports[p];
-
-					if (port->portUni != (_artBuffer[addr + y] & 0x0F))
-						continue;
-
-					port->lastTodCommand = millis();
-
-					// Flush TOD
-					if (_artBuffer[22] == 0x01)
-						_art->todFlushCallback(g, p);
-
-					// TOD Request
-					else
-						_art->todRequestCallback(g, p);
-				}
-			}
-
-
-		}
+        if (data[22] == 0x01 && todFlushCallback) { // Flush TOD
+          todFlushCallback(g, p);
+        } else if(todRequestCallback) { // TOD Request
+          todRequestCallback(g, p);
+        }
+      }
+    }
 	}
-
 }
 
 void espArtNetRDM::artTODData(uint8_t g, uint8_t p, uint16_t* uidMan, uint32_t* uidDev, uint16_t uidTotal, uint8_t state) {
@@ -817,12 +783,9 @@ void espArtNetRDM::artTODData(uint8_t g, uint8_t p, uint16_t* uidMan, uint32_t* 
 	artTodData[20] = g + 1;              // bind index
 	artTodData[21] = _art->group[g]->netSwitch;
 
-	if (state == RDM_TOD_READY)
-		artTodData[22] = 0x00;             // TOD full
-	else
-		artTodData[22] = 0xFF;             // TOD not avail or incomplete
+  artTodData[22] = (state == RDM_TOD_READY)? 0x00: 0xFF;  // 0x00 TOD full, 0xFF  TOD not avail or incomplete
 
-	artTodData[23] = (_art->group[g]->subnet << 4) | _art->group[g]->ports[p]->portUni;
+	artTodData[23] = (_art->group[g]->subnet << 4) | getPort(g, p)->portUni;
 	artTodData[24] = uidTotal >> 8;      // number of RDM devices found
 	artTodData[25] = uidTotal;
 
@@ -861,8 +824,8 @@ void espArtNetRDM::artTODData(uint8_t g, uint8_t p, uint16_t* uidMan, uint32_t* 
 	}
 }
 
-void espArtNetRDM::_artTODControl(unsigned char *_artBuffer) {
-	_artTODRequest(_artBuffer);
+void espArtNetRDM::_artTODControl(uint8_t* data) {
+	_artTODRequest(data);
 }
 
 void espArtNetRDM::_artRDM(uint8_t* data, uint16_t packetSize) {
@@ -870,97 +833,86 @@ void espArtNetRDM::_artRDM(uint8_t* data, uint16_t packetSize) {
 
 	IPAddress remoteIp = eUDP.remoteIP();
 
-	uint8_t net = _artBuffer[21] * 0x7F;
-	uint8_t sub = _artBuffer[23] >> 4;
-	uint8_t uni = _artBuffer[23] & 0x0F;
+	uint8_t net = data[21] * 0x7F;
+	uint8_t sub = data[23] >> 4;
+	uint8_t uni = data[23] & 0x0F;
 
 	// Get RDM data into out buffer ready to send
 	rdm_data c;
 	c.buffer[0] = 0xCC;
-	memcpy(&c.buffer[1], &_artBuffer[24], _artBuffer[25] + 2);
+	memcpy(&c.buffer[1], &data[24], data[25] + 2);
 
-	group_def* group = 0;
 	unsigned long timeNow = millis();
 
 	// Get the group number
-	for (int x = 0; x < _art->numGroups; x++) {
-		if (net == _art->group[x]->netSwitch && sub == _art->group[x]->subnet) {
-			group = _art->group[x];
+	for (int g = 0; g < _art->numGroups; g++) {
+    group_def* group = _art->group[g];
+		if (net != group->netSwitch || sub != group->subnet)
+      continue;
 
-			// Get the port number
-			for (int y = 0; y < 4; y++) {
+    // Get the port number
+    for (int p = 0; p < ARTNET_GROUP_MAX_PORTS; p++) {
+      auto port = getPort(g, p);
+      if (!port || port->portType != RECEIVE_RDM)
+        continue; // If the port isn't in use
 
-				// If the port isn't in use
-				if (group->ports[y] == 0 || group->ports[y]->portType != RECEIVE_RDM)
-					continue;
+      // Run callback
+      if (uni == port->portUni) {
+        rdmCallback(g, p, &c);
 
-				// Run callback
-				if (uni == group->ports[y]->portUni) {
-					_art->rdmCallback(x, y, &c);
+        bool ipSet = false;
 
-					bool ipSet = false;
+        for (int q = 0; q < 5; q++) {
+          // Check when last packets where received.  Clear if over 200ms
+          if (timeNow >= (port->rdmSenderTime[q] + 200))
+            port->rdmSenderIP[q] = INADDR_NONE;
 
-					for (int q = 0; q < 5; q++) {
-						// Check when last packets where received.  Clear if over 200ms
-						if (timeNow >= (group->ports[y]->rdmSenderTime[q] + 200))
-							group->ports[y]->rdmSenderIP[q] = INADDR_NONE;
-
-						// Save our IP
-						if (!ipSet) {
-							if (group->ports[y]->rdmSenderIP[q] == INADDR_NONE || group->ports[y]->rdmSenderIP[q] == remoteIp) {
-								group->ports[y]->rdmSenderIP[q] = remoteIp;
-								group->ports[y]->rdmSenderTime[q] = timeNow;
-								ipSet = true;
-							}
-						}
-					}
-				}
-			}
-		}
+          // Save our IP
+          if (ipSet) continue;
+          if (port->rdmSenderIP[q] == INADDR_NONE || port->rdmSenderIP[q] == remoteIp) {
+            port->rdmSenderIP[q] = remoteIp;
+            port->rdmSenderTime[q] = timeNow;
+            ipSet = true;
+          }
+        }
+      }
+    }
 	}
 }
 
 void espArtNetRDM::rdmResponse(rdm_data* c, uint8_t g, uint8_t p) {
 	uint16_t len = ARTNET_RDM_REPLY_SIZE + c->packet.Length + 1;
-	// Initialise our reply
-	char rdmReply[len];
-  memset(rdmReply, 0x0, len);
+	uint8_t rdmReply[len]; // Initialise our reply
+  memset(rdmReply, 0, len);
   _artSetPacketHeader(rdmReply, ARTNET_RDM);
 	rdmReply[11] = 14;                 // artNet version (14)
 	rdmReply[12] = 0x01;               // RDM version - RDM STANDARD V1.0
 
 	rdmReply[21] = _art->group[g]->netSwitch;
 	rdmReply[22] = 0x00;              // Command - 0x00 = Process RDM Packet
-	rdmReply[23] = (_art->group[g]->subnet << 4) | _art->group[g]->ports[p]->portUni;
+	rdmReply[23] = (_art->group[g]->subnet << 4) | getPort(g, p)->portUni;
 
 	// Copy everything except the 0xCC start code
 	memcpy(&rdmReply[24], &c->buffer[1], c->packet.Length + 1);
 
 	for (int x = 0; x < 5; x++) {
-		if (_art->group[g]->ports[p]->rdmSenderIP[x] != INADDR_NONE) {
-			// Send packet
-			eUDP.beginPacket(_art->group[g]->ports[p]->rdmSenderIP[x], ARTNET_PORT);
+		if (getPort(g, p)->rdmSenderIP[x] != INADDR_NONE) {
+			eUDP.beginPacket(getPort(g, p)->rdmSenderIP[x], ARTNET_PORT);
 			int test = eUDP.write(rdmReply, len);
 			eUDP.endPacket();
 		}
 	}
 }
 
-void espArtNetRDM::_artRDMSub(unsigned char *_artBuffer) {
+void espArtNetRDM::_artRDMSub(uint8_t* data) {
 	//Serial.println("artRDMSub");
 }
 
-IPAddress espArtNetRDM::getIP() {
-	return _art->deviceIP;
-}
+IPAddress espArtNetRDM::getIP() { return _art->deviceIP; }
 
-IPAddress espArtNetRDM::getSubnetMask() {
-  return _art->subnet;
-}
+IPAddress espArtNetRDM::getSubnetMask() { return _art->subnet; }
 
-bool espArtNetRDM::getDHCP() {
-	return _art->dhcp;
-}
+bool espArtNetRDM::getDHCP() { return _art->dhcp; }
 
 
 void espArtNetRDM::setIP(IPAddress ip, IPAddress subnet) {
@@ -997,30 +949,29 @@ uint8_t espArtNetRDM::getSubNet(uint8_t g) {
 }
 
 void espArtNetRDM::setUni(uint8_t g, uint8_t p, uint8_t uni) {
-	if (g >= _art->numGroups || !_art->group[g]->ports[p]) return;
-	_art->group[g]->ports[p]->portUni = uni;
+	if (g >= _art->numGroups || !getPort(g, p)) return;
+	getPort(g, p)->portUni = uni;
 }
 
 uint8_t espArtNetRDM::getUni(uint8_t g, uint8_t p) {
-	if (g >= _art->numGroups || !_art->group[g]->ports[p]) return 0; //oh yeah 0 is invalid/test(?) uni right?
-	return _art->group[g]->ports[p]->portUni;
+	if (g >= _art->numGroups || !getPort(g, p)) return 0; //oh yeah 0 is invalid/test(?) uni right?
+	return getPort(g, p)->portUni;
 }
 
 
 void espArtNetRDM::setPortType(uint8_t g, uint8_t p, uint8_t t) {
-	if (g >= _art->numGroups || !_art->group[g]->ports[p]) return;
-
-	_art->group[g]->ports[p]->portType = t;
+	if (g >= _art->numGroups || !getPort(g, p)) return;
+	getPort(g, p)->portType = t;
 }
 
 void espArtNetRDM::setMerge(uint8_t g, uint8_t p, bool htp) {
-	if (g >= _art->numGroups || !_art->group[g]->ports[p]) return;
-	_art->group[g]->ports[p]->mergeHTP = htp;
+	if (g >= _art->numGroups || !getPort(g, p)) return;
+	getPort(g, p)->mergeHTP = htp;
 }
 
 bool espArtNetRDM::getMerge(uint8_t g, uint8_t p) {
-	if (g >= _art->numGroups || !_art->group[g]->ports[p]) return false;
-	return _art->group[g]->ports[p]->mergeHTP;
+	if (g >= _art->numGroups || !getPort(g, p)) return false;
+	return getPort(g, p)->mergeHTP;
 }
 
 
@@ -1048,19 +999,19 @@ void espArtNetRDM::setNodeReport(char* c, uint16_t code) {
 }
 
 void espArtNetRDM::sendDMX(uint8_t g, uint8_t p, IPAddress bcAddress, uint8_t* data, uint16_t length) {
-	if (g >= _art->numGroups || !_art->group[g]->ports[p]) return;
+	if (g >= _art->numGroups || !getPort(g, p)) return;
 
 	uint8_t net = _art->group[g]->netSwitch;
 	uint8_t subnet = _art->group[g]->subnet;
-	uint8_t uni = _art->group[g]->ports[p]->portUni;
+	uint8_t uni = getPort(g, p)->portUni;
 
 	// length is always even and up to 512 channels
 	if (length % 2)   length += 1;
 	if (length > 512) length = 512;
 
-	_art->group[g]->ports[p]->dmxChans = length;
+	getPort(g, p)->dmxChans = length;
 
-	uint8_t artDMX[ARTNET_BUFFER_MAX]{0};
+	uint8_t artDMX[ARTNET_BUFFER_MAX] = {0};
   _artSetPacketHeader(artDMX, ARTNET_ARTDMX);
 	artDMX[11] = 14;              // protocol version (14)
 	artDMX[12] = _dmxSeqID++;		  // sequence ID
@@ -1081,28 +1032,21 @@ void espArtNetRDM::sendDMX(uint8_t g, uint8_t p, IPAddress bcAddress, uint8_t* d
 }
 
 void espArtNetRDM::setProtocolType(uint8_t g, uint8_t p, uint8_t type) {
-	if (!_art || _art->numGroups <= g || !_art->group[g]->ports[p])
+	if (!_art || _art->numGroups <= g || !getPort(g, p))
 		return;
 
 	// Increment or decrement our e131Count variable if the universe was artnet before and is now sACN
-	if (_art->group[g]->ports[p]->protocol == ARTNET && type != ARTNET) {
-
-		// Clear the DMX output buffer
-		_artClearDMXBuffer(_art->group[g]->ports[p]->dmxBuffer);
-
+	if (getPort(g, p)->protocol == ARTNET && type != ARTNET) {
+		_artClearDMXBuffer(getPort(g, p)->dmxBuffer);
 	}  // if it was not an sACN before and it is an ArtNet now => decrement
-	else if (_art->group[g]->ports[p]->protocol != ARTNET && type == ARTNET)
-	{
-
-		// Clear the DMX output buffer
-		_artClearDMXBuffer(_art->group[g]->ports[p]->dmxBuffer);
+	else if (getPort(g, p)->protocol != ARTNET && type == ARTNET) {
+		_artClearDMXBuffer(getPort(g, p)->dmxBuffer);
 	}
 
-	_art->group[g]->ports[p]->protocol = type;
+	getPort(g, p)->protocol = type;
 }
 
-uint8_t espArtNetRDM::getProtocolType(uint8_t g, uint8_t p)
-{
-	return _art->group[g]->ports[p]->protocol;
+uint8_t espArtNetRDM::getProtocolType(uint8_t g, uint8_t p) {
+	return getPort(g, p)->protocol;
 }
 

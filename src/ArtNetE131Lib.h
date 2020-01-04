@@ -248,21 +248,23 @@ private:
 	artnet_device* _art = nullptr;
 	void end();
 
-	int _artOpCode(unsigned char*);
+	int _artOpCode(uint8_t*);
 	void _artIPProgReply();
 
+	port_def* getPort(uint8_t g, uint8_t p) { return _art->group[g]->ports[p]; }
+
 	// handlers for received packets
-	void _artPoll(void);
-	void _artDMX(unsigned char*);
-	void _saveDMX(unsigned char*, uint16_t, uint8_t, uint8_t, IPAddress, uint16_t);
-	void _artIPProg(unsigned char*);
-	void _artAddress(unsigned char*);
-	void _artSync(unsigned char*);
-	void _artFirmwareMaster(unsigned char*);
-	void _artTODRequest(unsigned char*);
-	void _artTODControl(unsigned char*);
-	void _artRDM(unsigned char*, uint16_t);
-	void _artRDMSub(unsigned char*);
+	void _artPollReply(bool force = false);
+	void _artDMX(uint8_t*);
+	void _saveDMX(uint8_t*, uint16_t, uint8_t, uint8_t, IPAddress, uint16_t);
+	void _artIPProg(uint8_t*);
+	void _artAddress(uint8_t*);
+	void _artSync(uint8_t*);
+	void _artFirmwareMaster(uint8_t*);
+	void _artTODRequest(uint8_t*);
+	void _artTODControl(uint8_t*);
+	void _artRDM(uint8_t*, uint16_t);
+	void _artRDMSub(uint8_t*);
 
 
 	uint8_t _dmxSeqID = 0;
