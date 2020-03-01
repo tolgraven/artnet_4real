@@ -13,21 +13,36 @@ You should have received a copy of the GNU General Public License along with thi
 If not, see http://www.gnu.org/licenses/
 */
 
-// goal is just update for modern c++, uncouple ESP8266WiFi (and ideally Arduino...)...
 #pragma once
 
 #include <Arduino.h>
+#if defined(ARDUINO_ARCH_ESP32) || defined(ESP32)
+#include <WiFi.h>
+#elif defined(ARDUINO_ARCH_ESP8266)
 #include <ESP8266WiFi.h>
+#elif defined(ARDUINO_ARCH_SAMD)
+#if defined(ARDUINO_SAMD_MKR1000)
+#include <WiFi101.h>
+#else
+#include <WiFiNINA.h>
+#endif
+#else
+#error "Architecture not supported!"
+#endif
 #include <WiFiUdp.h>
 
 #include <functional>
 
-extern "C" {
-#include "mem.h"
-}
+// extern "C" {
+// #include "mem.h"
+// }
 #include "rdmDataTypes.h"
 #include "artnet.h"
 
+// artnetnodewifi has less of protocol impl but all of it better documented
+// so keep mining that for good docu
+// arttimecode can do both smpte and midi clock(?not? timecode). so fix that
+// then link support...
 using ArtDMXCallback		= std::function<void(uint8_t, uint8_t, uint16_t, bool)>;
 using ArtSyncCallback		= std::function<void()>;
 using ArtRDMCallback		= std::function<void(uint8_t, uint8_t, rdm_data*)>;
@@ -42,71 +57,68 @@ enum port_type : uint8_t {
 	SEND_DMX = 2     // = send DMX to ArtNet
 };
 
-enum protocol_type : uint8_t   // private enum
-{
+enum protocol_type : uint8_t {
 	ARTNET = 0,
-	SACN_UNICAST = 1,
-	SACN_MULTICAST = 2
+	SACN_UNICAST = 1, SACN_MULTICAST = 2
 };
 
+struct IPEvent {
+  IPAddress src = INADDR_NONE;
+  uint32_t receivedAt;
+};
 
 struct _port_def {
 	_port_def(uint8_t universe, port_type t = RECEIVE_DMX,
 				uint8_t* buf = nullptr, bool htp = true):
 		portType(t), portUni(universe),
 		dmxBuffer(buf? buf: new uint8_t[DMX_BUFFER_SIZE]{0}),
-		ownBuffer(buf? true: false),
+		ownBuffer(buf? false: true), //right?
 		mergeHTP(htp) {
 	}
 	~_port_def() {
 		if(ownBuffer) delete dmxBuffer;
 		if(ipBuffer)  delete ipBuffer;
 	}
-	// DMX out/in or RDM out
-	uint8_t portType = RECEIVE_DMX;
-
-	// ArtNet or sACN
-	uint8_t protocol = ARTNET;
+	uint8_t portType = RECEIVE_DMX; // DMX out/in or RDM out
+	uint8_t protocol = ARTNET; // ArtNet or sACN
 
 	// sACN settings
-	uint16_t e131Uni;
-	uint16_t e131Sequence;
-	uint8_t e131Priority;
+	/* uint16_t e131Uni; */
+	/* uint16_t e131Sequence; */
+	/* uint8_t e131Priority; */
 
-	// Port universe
-	uint8_t portUni;
+	uint8_t portUni; // Port universe
 
-	// DMX final values buffer
-	uint8_t* dmxBuffer = nullptr;
+	uint8_t* dmxBuffer = nullptr; // DMX final values buffer
 	uint16_t dmxChans = 0;
 	bool ownBuffer = true;
 	bool mergeHTP = true;
-	bool merging = 0;
+	bool merging = false;
 
-	// ArtDMX input buffers for 2 IPs
-	uint8_t* ipBuffer = nullptr;
+	uint8_t* ipBuffer = nullptr; // ArtDMX input merge buffers for 2 IPs. If abstract can have only those, no main buf, and perform when data grabbed?
 	uint16_t ipChans[2]{0};
 
-	// IPs for current data + time of last packet
-	IPAddress senderIP[2]{INADDR_NONE};
+  // IPEvent sender[2];
+	IPAddress senderIP[2]{INADDR_NONE}; // IPs for current data + time of last packet
 	unsigned long lastPacketTime[2];
 
-	// IPs for the last 5 RDM commands
-	IPAddress rdmSenderIP[5]{INADDR_NONE};
+  // IPEvent rdmSender[5];
+	IPAddress rdmSenderIP[5]{INADDR_NONE}; // IPs for the last 5 RDM commands
 	unsigned long rdmSenderTime[5];
 
 	// RDM Variables
 	bool todAvailable = false;
 	uint16_t uidTotal = 0;
-	uint16_t uidMan[50];
-	uint32_t uidSerial[50];
+	uint16_t uidMan[50]{0};
+	uint32_t uidSerial[50]{0};
 	unsigned long lastTodCommand = 0;
 };
-
 typedef struct _port_def port_def;
 
+
 struct _group_def {
-	_group_def() {}
+	_group_def(uint8_t net, uint8_t subnet):
+    netSwitch(net & 0b01111111), subnet(subnet) {}
 	~_group_def() { for(auto port: ports) delete port; }
 	// Port Address
 	uint8_t netSwitch = 0x00;
@@ -119,8 +131,8 @@ struct _group_def {
 	bool cancelMerge = false;
 	unsigned long cancelMergeTime = 0;
 };
-
 typedef struct _group_def group_def;
+
 
 struct _artnet_def {
 	_artnet_def() {}
@@ -129,7 +141,7 @@ struct _artnet_def {
 	IPAddress deviceIP;
 	IPAddress subnet;
 	IPAddress broadcastIP;
-	IPAddress rdmIP[5];
+	IPAddress rdmIP[5]; //appears unused...
 	uint8_t rdmIPcount;
 
 	IPAddress syncIP = INADDR_NONE;
@@ -138,34 +150,247 @@ struct _artnet_def {
 	uint8_t deviceMAC[6];
 	bool dhcp = true;
 
-	char shortName[ARTNET_SHORT_NAME_LENGTH];
-	char longName[ARTNET_LONG_NAME_LENGTH];
+	char shortName[ARTNET_SHORT_NAME_LENGTH]{0};
+	char longName[ARTNET_LONG_NAME_LENGTH]{0};
 
+	uint16_t oem;
 	uint8_t oemHi;
 	uint8_t oemLo;
+	uint16_t estaMan;
 	uint8_t estaHi;
 	uint8_t estaLo;
 
-	group_def* group[ARTNET_MAX_GROUPS];
+	group_def* group[ARTNET_MAX_GROUPS]{nullptr};
 	uint8_t numGroups = 0;
 	uint32_t lastIPProg;
 	uint32_t nextPollReply = 0;
 
-	uint16_t firmWareVersion = 0;
+	uint16_t fwVersion  = 0;
 	uint32_t nodeReportCounter = 0;
 	uint16_t nodeReportCode = ARTNET_RC_POWER_OK;
-	char nodeReport[ARTNET_NODE_REPORT_LENGTH];
+	char nodeReport[ARTNET_NODE_REPORT_LENGTH - 18];
+};
+typedef struct _artnet_def artnet_device;
+// afa these structs I mean they have nothing to do with artnet layout or whatever so just use proper shit yeah?
+
+
+// #pragma push(pack, 1)
+
+// SO. These mainly for construction but guess also parsing by casting.
+// Figure whether makes sense working around putting packet data always in same spot
+// or, since do have multiple group possibility etc and so much is reused,
+// keeping more allocated.
+// Or best is streamline so relevant stuff is lifted straight away and
+// end user never actually (have to) touch these datatypes at all.
+
+struct PacketArtPoll {
+	char     ID[8]      = {ARTNET_ID_STR}; // protocol ID = "Art-Net"
+	uint16_t OpCode			= ARTNET_ARTPOLL;
+	uint8_t  ip[4]			= {0};    // 0 means not configured
+	uint16_t port				= 0x1936; // 6454. lo, hi...
 };
 
-typedef struct _artnet_def artnet_device;
+
+struct PacketPollReply {
+	char      ID[8]       = {ARTNET_ID_STR}; // protocol ID = "Art-Net"
+	uint16_t  OpCode			= ARTNET_ARTPOLL_REPLY; // == OpPollReply
+	uint8_t   ip[4]				= {0};      // 0 means not configured
+	uint16_t  port				= 0x1936;   // 6454. lo, hi...
+	uint16_t  fwVersion	  = 0;         // uint8_t fwHi = 0, fwLo = 0; //
+	uint8_t   netSwitch		= 0;         // Bits 14-8 of the 15 bit universe number are encoded into the bottom 7 bits of this field.
+	uint8_t   subSwitch		= 0;         // Bits 7-4 of the 15 bit universe number are encoded into the bottom 4 bits of this field.
+	uint16_t  oem				  = ARTNET_DEFAULT_OEM; // uint8_t oemHi = 0x00, oemLo = 0xff;
+	uint8_t   ubeaVersion	= 0;
+
+	uint8_t   status      = 0b11110010; // bit 0 UBEA, 1 RDM capable (not = uni, RDM = bi-directional), bit 2 = 0 Boot flash (normal), 1 Boot ROM (possible error),  bit 3 = Not used bit 5-4 = 00 Universe programming authority unknown, 01 by front panel controls, 10 by network,  bit 7-6 = 00 Indicators Normal, 01 Indicators Locate, 10 Indicators Mute
+  // so make setters...  setUbea(bool present) { ... } setBoot(bool present) { ... } setUniverseAuthority(UniverseAuthority state) { ... } setIndicators(IndicatorState state) { ... }
+
+	uint16_t  estaMan     = ARTNET_DEFAULT_ESTA_MAN; // lo, hi...
+	// INDEX: 26
+	char shortName[ARTNET_SHORT_NAME_LENGTH], longName[ARTNET_LONG_NAME_LENGTH];
+	char nodeReport[ARTNET_NODE_REPORT_LENGTH]; // Text feedback of Node status, errors, debug..
+
+	// uint8_t numPortsPadHi = 0, numPorts = 0;	// hi always 0, lo 0-4
+	// but why not just u16 and set normal then...?
+	uint16_t numPorts     = 0;
+
+	// INDEX 174: 4 * 20 byte port information for group
+
+	uint8_t portType[ARTNET_GROUP_MAX_PORTS]   = {0};   // setPortType(uint8_t port, PortData data, bool state) {  } bit 7 is output, 6 input, 0-5 protocol number (0= DMX, 1=MIDI).  for DMX-Hub ={0xc0,0xc0,0xc0,0xc0};
+	uint8_t goodInput[ARTNET_GROUP_MAX_PORTS]  = {0};   // bit 7 data active, 6 data includes test packets, 5 data includes SIPs, 4 data includes text, 3 input is disabled, 2 receive errors, 1-0 not used, transmitted as zero.  Don't test for zero! (means what?)
+	uint8_t goodOutput[ARTNET_GROUP_MAX_PORTS] = {0};   // bit 7-4 same as goodInput 3 output merging data., 2 DMX output short detected on power up, 1 DMX output merge mode LTP, 0 not used, transmitted as zero.
+	uint8_t swIn[ARTNET_GROUP_MAX_PORTS],               // Bits 3-0 of the 15 bit universe number are encoded into the low nibble
+          swOut[ARTNET_GROUP_MAX_PORTS];              // This is used in combination with SubSwitch and NetSwitch to produce the full universe address.  THIS IS FOR INPUT/OUTPUT - ART-NET or DMX, NB ON ART-NET II THESE 4 UNIVERSES WILL BE UNICAST TO.
+
+	uint8_t swVideo     = 0;    // Low nibble is the value of the video output channel
+	uint8_t swMacro     = 0;    // Bit 0-7 Macro input 1-8
+	uint8_t swRemote    = 0;    // Bit 0-7 Macro input 1-8
+
+	uint8_t spare[3]    = {0};	// Spare 1-3, currently zero
+	uint8_t style       = 0;	  // Set to Style code to describe type of equipment
+
+	uint8_t mac[6]      = {0};	// Mac Address, zero if info not available
+	uint8_t bindIp[4]   = {0};	// If this unit is part of a larger or modular product, this is the IP of the root device.
+	uint8_t bindIndex   = 0;	  // Set to zero if no binding, otherwise this number represents the order of bound devices. A lower number means closer to root device.
+
+	uint8_t status2     = 0b00000000;   // bit 0 supports web config, 1 DHCP configured, 2 DHCP capable, 3-7 n/a, 0
+	uint8_t filler[26]  = {0};	        // Filler bytes, currently zero.
+};
 
 
+// struct SubPacketHeader {
+// 	char     ID[8]	      = "Art-Net";
+// 	uint16_t OpCode;
+// 	uint16_t protocolVer	= ARTNET_PROTOCOL_VERSION << 8; // hi byte first. wha how is right
+//   // uint8_t  rdmVer     = 0x01;    // on all RDM packets version - RDM STANDARD V1.0
+// };
+
+struct PacketArtDMX {
+  // PacketArtDMX(group_def& group, port_def& port, uint8_t seqId, uint8_t portId,
+    // subUni((group.subnet << 4) | port.portUni), // maybe bit messy doing like this but eh
+    // net(group.netSwitch & 0x7F), lenHi(length >> 8), lenLo(length & 0xFF) {
+
+  // seqId could just be incrd tho for sending if have in place.
+  // PacketArtDMX(uint8_t seqId, uint8_t p, uint8_t subUni, uint8_t netSwitch,
+  //              uint8_t* payload, uint16_t length) {
+  //     memcpy(data, payload, length);
+  // }
+  PacketArtDMX(uint8_t seqId, uint8_t p, uint8_t subUni, uint8_t netSwitch,
+               uint8_t* payload, uint16_t length):
+    // sequenceID(seqId), portId(p), subUni(subUni) {}
+    sequenceID(seqId), portId(p), subUni(subUni), //{
+    net(netSwitch & 0x7F), lenHi(length >> 8), lenLo(length & 0xFF) {
+    // net(netSwitch & 0x7F), lenHi(length >> 8)
+    // net(netSwitch & 0x7F)
+    // { //, lenLo(length & 0xFF) {
+      // net = netSwitch & 0x7F;
+      // lenLo = length;
+      // lenHi = length >> 8;
+      memcpy(data, payload, length);
+    }
+	char     ID[8]        = {ARTNET_ID_STR}; // protocol ID = "Art-Net"
+	uint16_t OpCode				= ARTNET_ARTDMX;
+	uint16_t protocolVer	= ARTNET_PROTOCOL_VERSION; //<< 8; // hi byte first. wha how is right
+	uint8_t sequenceID		= 0;
+	uint8_t portId	      = 0;  // Port ID (not really necessary)
+	uint8_t subUni				= 0;
+	uint8_t net           = 0;
+	// uint16_t length       = 0;
+	uint8_t lenHi = 0, lenLo = 0;
+	uint8_t data[512]     = {0};
+	// uint8_t data[512];
+};
+
+#define ARTNET_MAX_UID_COUNT 200
+#define ARTNET_RDM_UID_WIDTH 6  //typ, 48 bits
+struct PacketArtTODData {
+  // PacketArtTODData(uint8_t g, uint8_t p, uint8_t net, uint8_t address, uint8_t state, uint16_t uidTotal)
+  // PacketArtTODData(uint8_t g, uint8_t p, uint8_t netSwitch, uint8_t address, uint8_t state, uint16_t uidTotal):
+  //   port(p + 1), bindIndex(g + 1), netSwitch(netSwitch) //,
+  PacketArtTODData(uint8_t g, uint8_t p, uint8_t net, uint8_t address, uint8_t state, uint16_t uidTotal):
+    port(p + 1), bindIndex(g + 1), netSwitch(net), //,
+    cmdRes((state == RDM_TOD_READY)? 0x00: 0xFF), //,  // 0x00 TOD full, 0xFF  TOD not avail or incomplete)
+    // address(getSubUni(g, p)), uidTotalHi(uidTotal >> 8), uidTotalLo(uidTotal) {
+    address(address), uidTotalHi(uidTotal >> 8), uidTotalLo(uidTotal) {
+    // address(address), uidTotalLo((uint8_t)uidTotal) {
+    // address(address) {
+     // {
+       // cmdRes = (state == RDM_TOD_READY)? 0x00: 0xFF; //,  // 0x00 TOD full, 0xFF  TOD not avail or incomplete)
+       // // address = address;
+      // uidTotalLo = (uint8_t)uidTotal;
+      // uidTotalHi = uidTotal >> 8;
+      // then the rest seems a bit complicated so maybe not from constructor...
+    }
+	char      ID[8]     = {ARTNET_ID_STR}; // protocol ID = "Art-Net"
+  uint16_t opCode     = ARTNET_TOD_DATA;
+  uint16_t version    = ARTNET_PROTOCOL_VERSION;
+  uint8_t  rdmVer     = 0x01;    // RDM version - RDM STANDARD V1.0
+  uint8_t  port;
+  uint8_t  spare[6]   = {0};
+  uint8_t  bindIndex;
+  uint8_t  netSwitch;
+  uint8_t  cmdRes;
+  uint8_t  address;
+  uint8_t  uidTotalHi, uidTotalLo;
+  uint8_t  blockCount;
+  uint8_t  uidCount;
+  // uint8_t  tod[ARTNET_MAX_UID_COUNT][ARTNET_RDM_UID_WIDTH]{0}{0};
+  uint8_t  tod[ARTNET_MAX_UID_COUNT][ARTNET_RDM_UID_WIDTH] = {};
+  // uint8_t  tod[ARTNET_MAX_UID_COUNT][ARTNET_RDM_UID_WIDTH] = {0};
+  // uint8_t  tod[ARTNET_MAX_UID_COUNT][ARTNET_RDM_UID_WIDTH]{0};
+}; //PACKED;
+
+// enum { ARTNET_MAX_RDM_ADCOUNT = 32 };
+// according to the rdm spec, this should be 278 bytes
+// we'll set to 512 here, the firmware datagram is still bigger
+// enum { ARTNET_MAX_RDM_DATA = 512 };
+
+struct PacketArtRDMResponse {
+  // PacketArtRDMResponse(rdm_data* c, uint8_t netSwitch, uint8_t subUni) {
+  //     netSwitch = netSwitch;
+  //     address = subUni;
+  //     // memcpy(data, &c->buffer[1], c->packet.Length + 1);
+  //     memcpy(data, c->buffer + 1, c->packet.Length + 1);
+  //   }
+  PacketArtRDMResponse(rdm_data* c, uint8_t netSwitch, uint8_t subUni):
+    netSwitch(netSwitch), // no & 0x7F here?
+    address(subUni) {
+    // address((group.subnet << 4) | port.portUni) {
+      memcpy(data, &c->buffer[1], c->packet.Length + 1);
+    }
+	char      ID[8]      = {ARTNET_ID_STR}; // protocol ID = "Art-Net"
+  uint16_t  opCode     = ARTNET_RDM;
+  uint16_t  version    = ARTNET_PROTOCOL_VERSION;
+  uint8_t   rdmVer     = 0x01;    // RDM version - RDM STANDARD V1.0
+  uint8_t   filler2    = 0;
+  uint8_t   spare[7]   = {0};
+  uint8_t   netSwitch;
+  uint8_t   cmd        = 0x00;    // Process RDM Packet
+  uint8_t   address;
+  // uint8_t   data[ARTNET_MAX_RDM_DATA] = {0};
+  uint8_t   data[ARTNET_MAX_RDM_DATA];
+}; // PACKED;
+
+// struct PacketArtTimeSync { // this is important for me. also grab the RDM stuff for setting strobe curbes etc from ArtNode.
+// 	// set the (clock) time
+// };
+
+// #pragma pop
+
+enum ArtPacketType {
+  ART_POLL              = 0x2000,
+  ART_REPLY             = 0x2100,
+  ART_DMX               = 0x5000,
+  ART_ADDRESS           = 0x6000,
+  ART_INPUT             = 0x7000,
+  ART_TODREQUEST        = 0x8000,
+  ART_TODDATA           = 0x8100,
+  ART_TODCONTROL        = 0x8200,
+  ART_RDM               = 0x8300,
+  // ART_VIDEOSTEUP        = 0xa010,
+  // ART_VIDEOPALETTE      = 0xa020,
+  // ART_VIDEODATA         = 0xa040,
+  ART_MACMASTER         = 0xf000,
+  ART_MACSLAVE          = 0xf100,
+  // ART_FIRMWAREMASTER    = 0xf200,
+  // ART_FIRMWAREREPLY     = 0xf300,
+  ART_IPPROG            = 0xf800,
+  ART_IPREPLY           = 0xf900,
+  ART_MEDIA             = 0x9000,
+  // ART_MEDIAPATCH        = 0x9200,
+  // ART_MEDIACONTROLREPLY = 0x9300
+  // ART_TIMESYNC          =
+}; //PACKED;
 
 
 class espArtNetRDM {
 public:
 	espArtNetRDM(): _art(new artnet_device) {} //still makes sense having a sep init so can eg create then wait until online and got IP, and is needed before actual allocs etc
-	~espArtNetRDM();
+	~espArtNetRDM() {
+    delete _art;
+    // eUDP.stopAll();
+    eUDP.stop();
+  }
 
 	void init(IPAddress ip, IPAddress sub, uint8_t* mac, bool dhcp,
 				const char* shortName, const char* longName, uint16_t oem, uint16_t esta);
@@ -189,8 +414,8 @@ public:
 	void setProtocolType(uint8_t, uint8_t, uint8_t);
 	uint8_t getProtocolType(uint8_t, uint8_t);
 
-	// sACN functions
-	void setE131Uni(uint8_t, uint8_t, uint16_t);
+	/* // sACN functions */
+	/* void setE131Uni(uint8_t, uint8_t, uint16_t); */
 
 	// handler function for including in loop()
 	int handler();
@@ -214,34 +439,37 @@ public:
 	uint8_t getNet(uint8_t);
 	uint8_t getSubNet(uint8_t);
 	uint8_t getUni(uint8_t, uint8_t);
+  uint8_t getSubUni(uint8_t g, uint8_t p);
 
 	// set network settings
-	void setIP(IPAddress, IPAddress);
-	void setIP(IPAddress ip) {
-		setIP(ip, INADDR_NONE);
-	}
+	void setIP(IPAddress ip, IPAddress subnet);
+	void setIP(IPAddress ip) { setIP(ip, INADDR_NONE); } //wait why
 	void setDHCP(bool);
 
-	// Set Merge & node name
-	void setMerge(uint8_t, uint8_t, bool);
+	void setMerge(uint8_t, uint8_t, bool); // XXX merge is a matter for network to device. "We" can't set it.
 	bool getMerge(uint8_t, uint8_t);
+  
 	void setShortName(char*);
+	void setShortName(const String& shortName);
 	char* getShortName();
 	void setLongName(char*);
+	void setLongName(const String& longName);
 	char* getLongName();
 
+	void setArtDiagData(char* diagString, uint8_t priority = ARTNET_DP_LOW); //fix this yo. tho also per port i guess
 	// RDM functions
 	void rdmResponse(rdm_data*, uint8_t, uint8_t);
 	void artTODData(uint8_t, uint8_t, uint16_t*, uint32_t*, uint16_t, uint8_t);
 
 	// get network settings
-	IPAddress getIP();
+	IPAddress getIP(); // no reason for this to be external or? - controlling device responsible...
 	IPAddress getSubnetMask();
 	bool getDHCP();
 
 	void setNodeReport(char*, uint16_t);
+	void setNodeReport(const String& text);
 
-	void sendDMX(uint8_t, uint8_t, IPAddress, uint8_t*, uint16_t);
+	void sendDMX(uint8_t group, uint8_t port, uint8_t* data, uint16_t length);
 
 private:
 	artnet_device* _art = nullptr;
@@ -250,10 +478,35 @@ private:
 	int _artOpCode(uint8_t*);
 	void _artIPProgReply();
 
-	port_def* getPort(uint8_t g, uint8_t p) { return _art->group[g]->ports[p]; }
+	port_def* getPort(uint8_t g, uint8_t p) {
+    return (_art->group[g] != nullptr)?
+            _art->group[g]->ports[p]:
+            nullptr;
+	}
+  void _clearMergeBuffer(port_def* port) {
+      delete port->ipBuffer; // Delete merge buffer if it exists
+      port->ipBuffer = nullptr;
+  }
+  void _cancelMergeOrFinish(group_def* group, bool cancel, IPAddress cancelMergeIP = INADDR_NONE) {
+      if(cancel)  group->cancelMergeTime = millis();
+      group->cancelMerge = cancel;
+      group->cancelMergeIP = cancelMergeIP;
+  }
+  void _sendPacket(IPAddress dest, uint8_t* data, uint16_t length, uint16_t port = ARTNET_PORT) {
+    // right way is maybe like other lib and make a union out of all the structs, for common packet? :)
+    // or like the existing proper teensy lib, completely outside...
+    eUDP.beginPacket(dest, port);
+    // eUDP.write(reinterpret_cast<uint8_t*>(&packet), (headerLength + length));
+    eUDP.write(data, length);
+    eUDP.endPacket();
+  }
+  // void _sendPacket(IPAddress dest, uint8_t* data, uint16_t length, uint16_t port = ARTNET_PORT) {
+  //   _sendPacketCallback(dest, data, length);
+  // }
 
 	// handlers for received packets
 	void _artPollReply(bool force = false);
+	void _artPollReplyFancy(bool force = false);
 	void _artDMX(uint8_t*);
 	void _saveDMX(uint8_t*, uint16_t, uint8_t, uint8_t, IPAddress, uint16_t);
 	void _artIPProg(uint8_t*);
@@ -266,9 +519,10 @@ private:
 	void _artRDMSub(uint8_t*);
 
 
-	uint8_t _dmxSeqID = 0;
+	uint8_t _dmxSeqID = 0; // isnt this per group/port if anything or?
 
-	WiFiUDP eUDP;
+	WiFiUDP eUDP; //fix more flexibility so ethernet etc tho! maybe template like applemidi lib but so much boilerp
+  // else that this only deals with packet construction/parsing -> generic lib woohoo. more smarter.
 
 	ArtDMXCallback dmxCallback;
 	ArtSyncCallback syncCallback;

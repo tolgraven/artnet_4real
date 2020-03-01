@@ -16,46 +16,53 @@ If not, see http://www.gnu.org/licenses/
 
 #pragma once
 
-#define ARTNET_PORT 6454
-#define ARTNET_BUFFER_MAX 600
-#define ARTNET_REPLY_SIZE 239
-#define ARTNET_IP_PROG_REPLY_SIZE 34
-#define ARTNET_RDM_REPLY_SIZE 24
-#define ARTNET_TOD_DATA_SIZE 28
-#define ARTNET_ADDRESS_OFFSET 18
-#define ARTNET_SHORT_NAME_LENGTH 18
-#define ARTNET_LONG_NAME_LENGTH 64
-#define ARTNET_NODE_REPORT_LENGTH 64
+#define ARTNET_PORT                 6454
+#define ARTNET_BUFFER_MAX           600
+#define ARTNET_REPLY_SIZE           239
+#define ARTNET_IP_PROG_REPLY_SIZE   34
+#define ARTNET_RDM_REPLY_SIZE       24
+#define ARTNET_TOD_DATA_SIZE        28
+#define ARTNET_ADDRESS_OFFSET       18
+#define ARTNET_SHORT_NAME_LENGTH    18
+#define ARTNET_LONG_NAME_LENGTH     64
+#define ARTNET_NODE_REPORT_LENGTH   64
 #define ARTNET_CANCEL_MERGE_TIMEOUT 2500
-#define DMX_BUFFER_SIZE 512
-#define DMX_MAX_CHANS 512
+#define DMX_BUFFER_SIZE             512
+#define DMX_MAX_CHANS               512
 
-#define ARTNET_MAX_GROUPS 16
-#define ARTNET_GROUP_MAX_PORTS 4
-#define ARTNET_DEFAULT_OEM  0x00ff          // Artnet OEM code - "unknown"
-#define ARTNET_DEFAULT_ESTA_MAN 0x7fff      // ESTA Manufacturer code - "prototyping reserved"
-#define ARTNET_DEFAULT_ESTA_DEV 0xEE000000  // RDM Device ID (used with Man Code to make 48bit UID)
-#define ARTNET_ID "Art-Net"
+#define ARTNET_MAX_GROUPS           16
+#define ARTNET_GROUP_MAX_PORTS      4
+#define ARTNET_DEFAULT_OEM          0x00ff      // Artnet OEM code - "unknown"
+#define ARTNET_DEFAULT_ESTA_MAN     0x7fff      // ESTA Manufacturer code - "prototyping reserved"
+#define ARTNET_DEFAULT_ESTA_DEV     0xEE000000  // RDM Device ID (used with Man Code to make 48bit UID)
+#define ARTNET_ID                   "Art-Net"
+#define ARTNET_ID_STR              'A', 'r', 't', '-', 'N', 'e', 't', '\0'
+#define ARTNET_PROTOCOL_VERSION     14
+
+// from other lib: according to the rdm spec,
+// this should be 278 bytes we'll set to 512 here, the firmware datagram is still bigger
+// this lib has it at 24 lol
+#define ARTNET_MAX_RDM_DATA       278
 
 // Artnet Op Codes
-#define ARTNET_ARTPOLL 0x2000
-#define ARTNET_ARTPOLL_REPLY 0x2100
-#define ARTNET_DIAG_DATA 0x2300
-#define ARTNET_COMMAND 0x2400
-#define ARTNET_ARTDMX 0x5000
-#define ARTNET_NZS 0x5100
-#define ARTNET_SYNC 0x5200
-#define ARTNET_ADDRESS 0x6000
-#define ARTNET_INPUT 0x7000
-#define ARTNET_TOD_REQUEST 0x8000
-#define ARTNET_TOD_DATA 0x8100
-#define ARTNET_TOD_CONTROL 0x8200
-#define ARTNET_RDM 0x8300
-#define ARTNET_RDM_SUB 0x8400
+#define ARTNET_ARTPOLL         0x2000
+#define ARTNET_ARTPOLL_REPLY   0x2100
+#define ARTNET_DIAG_DATA       0x2300
+#define ARTNET_COMMAND         0x2400
+#define ARTNET_ARTDMX          0x5000
+#define ARTNET_NZS             0x5100
+#define ARTNET_SYNC            0x5200
+#define ARTNET_ADDRESS         0x6000
+#define ARTNET_INPUT           0x7000
+#define ARTNET_TOD_REQUEST     0x8000
+#define ARTNET_TOD_DATA        0x8100
+#define ARTNET_TOD_CONTROL     0x8200
+#define ARTNET_RDM             0x8300
+#define ARTNET_RDM_SUB         0x8400
 #define ARTNET_FIRMWARE_MASTER 0xF200
-#define ARTNET_FIRMWARE_REPLY 0xF300
-#define ARTNET_IP_PROG 0xF800
-#define ARTNET_IP_PROG_REPLY 0xF900
+#define ARTNET_FIRMWARE_REPLY  0xF300
+#define ARTNET_IP_PROG         0xF800
+#define ARTNET_IP_PROG_REPLY   0xF900
 
 #define OpPoll             0x2000  // This is an ArtPoll packet, no other data is contained in this UDP packet
 #define OpPollReply        0x2100  // This is an ArtPollReply Packet. It contains device status information.
@@ -112,46 +119,46 @@ If not, see http://www.gnu.org/licenses/
 #define RcUserFail     0x000f  // User changed switch settings when address locked by remote programming. User changes ignored.
 
 // Artnet Command Codes
-#define ARTNET_AC_NONE 0x00
-#define ARTNET_AC_CANCEL_MERGE 0x01
-#define ARTNET_AC_LED_NORMAL 0x02
-#define ARTNET_AC_LED_MUTE 0x03
-#define ARTNET_AC_LED_LOCATE 0x04
+#define ARTNET_AC_NONE           0x00
+#define ARTNET_AC_CANCEL_MERGE   0x01
+#define ARTNET_AC_LED_NORMAL     0x02
+#define ARTNET_AC_LED_MUTE       0x03
+#define ARTNET_AC_LED_LOCATE     0x04
 #define ARTNET_AC_RESET_RX_FLAGS 0x05
-#define ARTNET_AC_MERGE_LTP_0 0x10
-#define ARTNET_AC_MERGE_LTP_1 0x11
-#define ARTNET_AC_MERGE_LTP_2 0x12
-#define ARTNET_AC_MERGE_LTP_3 0x13
-#define ARTNET_AC_MERGE_HTP_0 0x50
-#define ARTNET_AC_MERGE_HTP_1 0x51
-#define ARTNET_AC_MERGE_HTP_2 0x52
-#define ARTNET_AC_MERGE_HTP_3 0x53
-#define ARTNET_AC_CLEAR_OP_0 0x90
-#define ARTNET_AC_CLEAR_OP_1 0x91
-#define ARTNET_AC_CLEAR_OP_2 0x92
-#define ARTNET_AC_CLEAR_OP_3 0x93
-#define ARTNET_AC_ARTNET_SEL_0 0x60
-#define ARTNET_AC_ARTNET_SEL_1 0x61
-#define ARTNET_AC_ARTNET_SEL_2 0x62
-#define ARTNET_AC_ARTNET_SEL_3 0x63
-#define ARTNET_AC_ACN_SEL_0 0x70
-#define ARTNET_AC_ACN_SEL_1 0x71
-#define ARTNET_AC_ACN_SEL_2 0x72
-#define ARTNET_AC_ACN_SEL_3 0x73
+#define ARTNET_AC_MERGE_LTP_0    0x10
+#define ARTNET_AC_MERGE_LTP_1    0x11
+#define ARTNET_AC_MERGE_LTP_2    0x12
+#define ARTNET_AC_MERGE_LTP_3    0x13
+#define ARTNET_AC_MERGE_HTP_0    0x50
+#define ARTNET_AC_MERGE_HTP_1    0x51
+#define ARTNET_AC_MERGE_HTP_2    0x52
+#define ARTNET_AC_MERGE_HTP_3    0x53
+#define ARTNET_AC_CLEAR_OP_0     0x90
+#define ARTNET_AC_CLEAR_OP_1     0x91
+#define ARTNET_AC_CLEAR_OP_2     0x92
+#define ARTNET_AC_CLEAR_OP_3     0x93
+#define ARTNET_AC_ARTNET_SEL_0   0x60
+#define ARTNET_AC_ARTNET_SEL_1   0x61
+#define ARTNET_AC_ARTNET_SEL_2   0x62
+#define ARTNET_AC_ARTNET_SEL_3   0x63
+#define ARTNET_AC_ACN_SEL_0      0x70
+#define ARTNET_AC_ACN_SEL_1      0x71
+#define ARTNET_AC_ACN_SEL_2      0x72
+#define ARTNET_AC_ACN_SEL_3      0x73
 
-// Artnet ArtPoll and ArtDiagData priority codes
-#define ARTNET_DP_LOW 0x10
-#define ARTNET_DP_MED 0x40
-#define ARTNET_DP_HIGH 0x80
-#define ARTNET_DP_CRITICAL 0xe0
-#define ARTNET_DP_VOLATILE 0xf0
+// Artnet ArtPoll and            ArtDiagData priority codes
+#define ARTNET_DP_LOW            0x10
+#define ARTNET_DP_MED            0x40
+#define ARTNET_DP_HIGH           0x80
+#define ARTNET_DP_CRITICAL       0xe0
+#define ARTNET_DP_VOLATILE       0xf0
 
 
-#define ARTNET_ST_NODE       0x00  // regular Art-Net device
-#define ARTNET_ST_CONTROLLER 0x01  // console.
-#define ARTNET_ST_MEDIA      0x02  // Media Server.
-#define ARTNET_ST_ROUTE      0x03  // network routing device.
-#define ARTNET_ST_BACKUP     0x04  // backup device.
-#define ARTNET_ST_CONFIG     0x05  // configuration or diagnostic tool.
-#define ARTNET_ST_VISUAL     0x06  // visualiser.
+#define ARTNET_ST_NODE           0x00  // regular Art-Net device
+#define ARTNET_ST_CONTROLLER     0x01  // console.
+#define ARTNET_ST_MEDIA          0x02  // Media Server.
+#define ARTNET_ST_ROUTE          0x03  // network routing device.
+#define ARTNET_ST_BACKUP         0x04  // backup device.
+#define ARTNET_ST_CONFIG         0x05  // configuration or diagnostic tool.
+#define ARTNET_ST_VISUAL         0x06  // visualiser.
 
