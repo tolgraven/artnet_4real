@@ -174,7 +174,7 @@ typedef struct _artnet_def artnet_device;
 // afa these structs I mean they have nothing to do with artnet layout or whatever so just use proper shit yeah?
 
 
-// #pragma push(pack, 1)
+#pragma pack(push, 1)
 
 // SO. These mainly for construction but guess also parsing by casting.
 // Figure whether makes sense working around putting packet data always in same spot
@@ -239,7 +239,7 @@ struct PacketPollReply {
 
 
 // struct SubPacketHeader {
-// 	char     ID[8]	      = "Art-Net";
+// 	char     ID[8]	      = {ARTNET_ID_STR};
 // 	uint16_t OpCode;
 // 	uint16_t protocolVer	= ARTNET_PROTOCOL_VERSION << 8; // hi byte first. wha how is right
 //   // uint8_t  rdmVer     = 0x01;    // on all RDM packets version - RDM STANDARD V1.0
@@ -249,23 +249,10 @@ struct PacketArtDMX {
   // PacketArtDMX(group_def& group, port_def& port, uint8_t seqId, uint8_t portId,
     // subUni((group.subnet << 4) | port.portUni), // maybe bit messy doing like this but eh
     // net(group.netSwitch & 0x7F), lenHi(length >> 8), lenLo(length & 0xFF) {
-
-  // seqId could just be incrd tho for sending if have in place.
-  // PacketArtDMX(uint8_t seqId, uint8_t p, uint8_t subUni, uint8_t netSwitch,
-  //              uint8_t* payload, uint16_t length) {
-  //     memcpy(data, payload, length);
-  // }
   PacketArtDMX(uint8_t seqId, uint8_t p, uint8_t subUni, uint8_t netSwitch,
                uint8_t* payload, uint16_t length):
-    // sequenceID(seqId), portId(p), subUni(subUni) {}
     sequenceID(seqId), portId(p), subUni(subUni), //{
     net(netSwitch & 0x7F), lenHi(length >> 8), lenLo(length & 0xFF) {
-    // net(netSwitch & 0x7F), lenHi(length >> 8)
-    // net(netSwitch & 0x7F)
-    // { //, lenLo(length & 0xFF) {
-      // net = netSwitch & 0x7F;
-      // lenLo = length;
-      // lenHi = length >> 8;
       memcpy(data, payload, length);
     }
 	char     ID[8]        = {ARTNET_ID_STR}; // protocol ID = "Art-Net"
@@ -278,27 +265,15 @@ struct PacketArtDMX {
 	// uint16_t length       = 0;
 	uint8_t lenHi = 0, lenLo = 0;
 	uint8_t data[512]     = {0};
-	// uint8_t data[512];
 };
 
 #define ARTNET_MAX_UID_COUNT 200
 #define ARTNET_RDM_UID_WIDTH 6  //typ, 48 bits
 struct PacketArtTODData {
-  // PacketArtTODData(uint8_t g, uint8_t p, uint8_t net, uint8_t address, uint8_t state, uint16_t uidTotal)
-  // PacketArtTODData(uint8_t g, uint8_t p, uint8_t netSwitch, uint8_t address, uint8_t state, uint16_t uidTotal):
-  //   port(p + 1), bindIndex(g + 1), netSwitch(netSwitch) //,
   PacketArtTODData(uint8_t g, uint8_t p, uint8_t net, uint8_t address, uint8_t state, uint16_t uidTotal):
     port(p + 1), bindIndex(g + 1), netSwitch(net), //,
     cmdRes((state == RDM_TOD_READY)? 0x00: 0xFF), //,  // 0x00 TOD full, 0xFF  TOD not avail or incomplete)
-    // address(getSubUni(g, p)), uidTotalHi(uidTotal >> 8), uidTotalLo(uidTotal) {
     address(address), uidTotalHi(uidTotal >> 8), uidTotalLo(uidTotal) {
-    // address(address), uidTotalLo((uint8_t)uidTotal) {
-    // address(address) {
-     // {
-       // cmdRes = (state == RDM_TOD_READY)? 0x00: 0xFF; //,  // 0x00 TOD full, 0xFF  TOD not avail or incomplete)
-       // // address = address;
-      // uidTotalLo = (uint8_t)uidTotal;
-      // uidTotalHi = uidTotal >> 8;
       // then the rest seems a bit complicated so maybe not from constructor...
     }
 	char      ID[8]     = {ARTNET_ID_STR}; // protocol ID = "Art-Net"
@@ -314,10 +289,7 @@ struct PacketArtTODData {
   uint8_t  uidTotalHi, uidTotalLo;
   uint8_t  blockCount;
   uint8_t  uidCount;
-  // uint8_t  tod[ARTNET_MAX_UID_COUNT][ARTNET_RDM_UID_WIDTH]{0}{0};
   uint8_t  tod[ARTNET_MAX_UID_COUNT][ARTNET_RDM_UID_WIDTH] = {};
-  // uint8_t  tod[ARTNET_MAX_UID_COUNT][ARTNET_RDM_UID_WIDTH] = {0};
-  // uint8_t  tod[ARTNET_MAX_UID_COUNT][ARTNET_RDM_UID_WIDTH]{0};
 }; //PACKED;
 
 // enum { ARTNET_MAX_RDM_ADCOUNT = 32 };
@@ -326,17 +298,11 @@ struct PacketArtTODData {
 // enum { ARTNET_MAX_RDM_DATA = 512 };
 
 struct PacketArtRDMResponse {
-  // PacketArtRDMResponse(rdm_data* c, uint8_t netSwitch, uint8_t subUni) {
-  //     netSwitch = netSwitch;
-  //     address = subUni;
-  //     // memcpy(data, &c->buffer[1], c->packet.Length + 1);
-  //     memcpy(data, c->buffer + 1, c->packet.Length + 1);
-  //   }
   PacketArtRDMResponse(rdm_data* c, uint8_t netSwitch, uint8_t subUni):
     netSwitch(netSwitch), // no & 0x7F here?
     address(subUni) {
     // address((group.subnet << 4) | port.portUni) {
-      memcpy(data, &c->buffer[1], c->packet.Length + 1);
+      memcpy(data, c->buffer + 1, c->packet.Length + 1);
     }
 	char      ID[8]      = {ARTNET_ID_STR}; // protocol ID = "Art-Net"
   uint16_t  opCode     = ARTNET_RDM;
@@ -347,15 +313,14 @@ struct PacketArtRDMResponse {
   uint8_t   netSwitch;
   uint8_t   cmd        = 0x00;    // Process RDM Packet
   uint8_t   address;
-  // uint8_t   data[ARTNET_MAX_RDM_DATA] = {0};
-  uint8_t   data[ARTNET_MAX_RDM_DATA];
+  uint8_t   data[ARTNET_MAX_RDM_DATA] = {0};
 }; // PACKED;
 
 // struct PacketArtTimeSync { // this is important for me. also grab the RDM stuff for setting strobe curbes etc from ArtNode.
 // 	// set the (clock) time
 // };
 
-// #pragma pop
+#pragma pack(pop)
 
 enum ArtPacketType {
   ART_POLL              = 0x2000,
