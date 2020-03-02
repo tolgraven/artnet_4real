@@ -87,7 +87,7 @@ uint8_t espArtNetRDM::addGroup(uint8_t net, uint8_t subnet) {
 
 uint8_t espArtNetRDM::addPort(uint8_t g, uint8_t p, uint8_t universe, uint8_t t, bool htp, uint8_t* buf) {
 	// Check for a valid universe, group and port number
-	if (universe > 15 || p >= ARTNET_GROUP_MAX_PORTS || g > _art->numGroups)
+	if (universe > 15 || p >= ARTNET_NUM_PORTS || g > _art->numGroups)
 		return 255;
 
 	group_def* group = _art->group[g];
@@ -176,23 +176,15 @@ void espArtNetRDM::_artPollReply(bool force) {
 	if (!force && _art->nextPollReply > millis()) return; // limit the number of artPollReply messages
 	_art->nextPollReply = millis() + 2000;
 
-  PacketPollReply packet = PacketPollReply();
-  _artSetPacketIP(packet.ip, 0, getIP());    // ip address
+  auto packet = PacketPollReply(getIP(), _art->deviceMAC, _art->shortName, _art->longName); // this will need both proper ctor and other methods.
 
   packet.estaMan = _art->estaMan;
 
-  strncpy(packet.shortName, _art->shortName, ARTNET_SHORT_NAME_LENGTH - 1);
-  strncpy(packet.longName,  _art->longName,  ARTNET_LONG_NAME_LENGTH - 1);
-
 	// Set reply code
-	sprintf(packet.nodeReport, "#%04x[%d] %s", _art->nodeReportCode, _art->nodeReportCounter++, _art->nodeReport);
+	sprintf(packet.nodeReport, "#%04x[%d] %s",
+      _art->nodeReportCode, _art->nodeReportCounter++, _art->nodeReport);
   // XXX gcc8.2 errors complains that "writing up to 63 bytes into region of size 45-55" like ok cause art_nodereport already 64 I guess but...
 	if (_art->nodeReportCounter > 999999) _art->nodeReportCounter = 0; // Max 6 digits for counter - could be longer if wanted
-
-  memcpy(packet.mac, _art->deviceMAC, 6);
-
-  _artSetPacketIP(packet.bindIp, 0, getIP());    // ip address
-  // ^^ in orig but it's "ip of root device in modular system" so dunno if should be set normally? check spec
 
 	packet.status2 = (_art->dhcp)? 31: 29;  // status 2, dhcp at bit 2. but can have other functionality...
 
@@ -207,7 +199,7 @@ void espArtNetRDM::_artPollReply(bool force) {
 		packet.numPorts  = (uint16_t)group->numPorts << 8; // hi lo
 		packet.bindIndex = groupNum + 1;
 
-		for (int p = 0; p < ARTNET_GROUP_MAX_PORTS; p++) { // Port details
+		for (int p = 0; p < ARTNET_NUM_PORTS; p++) { // Port details
       port_def* port = group->ports[p];
 
 			// Send blank values for empty ports
@@ -260,7 +252,7 @@ void espArtNetRDM::_artDMX(uint8_t* data) {
 		if (net != group->netSwitch || sub != group->subnet)
       continue;
 
-    for (int p = 0; p < ARTNET_GROUP_MAX_PORTS; p++) { // Loop through each port
+    for (int p = 0; p < ARTNET_NUM_PORTS; p++) { // Loop through each port
       auto port = getPort(g, p);
       if (!port || port->portType == SEND_DMX)
         continue;
@@ -370,19 +362,11 @@ void espArtNetRDM::_saveDMX(uint8_t* dmxData, uint16_t numberOfChannels,
 uint8_t* espArtNetRDM::getDMX(uint8_t g, uint8_t p) {
   auto port = getPort(g, p);
   return port? port->dmxBuffer: nullptr;
-	// if (g < _art->numGroups && getPort(g, p)) {
-    // return getPort(g, p)->dmxBuffer;
-	// }
-	// return nullptr;
 }
 
 uint16_t espArtNetRDM::numChans(uint8_t g, uint8_t p) {
   auto port = getPort(g, p);
   return port? port->dmxChans: 0;
-	// if (g < _art->numGroups && getPort(g, p)) {
-    // return getPort(g, p)->dmxChans;
-	// }
-	// return 0;
 }
 
 void espArtNetRDM::_artIPProg(uint8_t* data) {
@@ -450,7 +434,7 @@ void espArtNetRDM::_artAddress(uint8_t* data) {
     memcpy(_art->longName, data + 32, ARTNET_LONG_NAME_LENGTH);
 	}
 
-	for (int x = 0; x < ARTNET_GROUP_MAX_PORTS; x++) { // Set Port Address
+	for (int x = 0; x < ARTNET_NUM_PORTS; x++) { // Set Port Address
 		if ((data[100 + x] & 0xF0) == 0x80 && group->ports[x])
 			group->ports[x]->portUni = data[100 + x] & 0x0F;
 	}
@@ -542,7 +526,7 @@ void espArtNetRDM::_artAddress(uint8_t* data) {
 	case ARTNET_AC_ARTNET_SEL_1:
 	case ARTNET_AC_ARTNET_SEL_2:
 	case ARTNET_AC_ARTNET_SEL_3: {
-		for (uint8_t x = 0; x < ARTNET_GROUP_MAX_PORTS; x++) {
+		for (uint8_t x = 0; x < ARTNET_NUM_PORTS; x++) {
 			if (group->ports[x] == 0) //XXX again super weird check??
 				setProtocolType(g, x, protocol_type::ARTNET);
 		}
@@ -553,7 +537,7 @@ void espArtNetRDM::_artAddress(uint8_t* data) {
 	case ARTNET_AC_ACN_SEL_1:
 	case ARTNET_AC_ACN_SEL_2:
 	case ARTNET_AC_ACN_SEL_3: {
-		for (uint8_t x = 0; x < ARTNET_GROUP_MAX_PORTS; x++) {
+		for (uint8_t x = 0; x < ARTNET_NUM_PORTS; x++) {
 			if (port == 0) //XXX and here
 				setProtocolType(g, x, protocol_type::SACN_UNICAST);
 		}
@@ -601,7 +585,7 @@ void espArtNetRDM::_artTODRequest(uint8_t* data) {
         continue;
 
       // Subnet matches so loop through the 4 ports and check universe
-      for (int p = 0; p < ARTNET_GROUP_MAX_PORTS; p++) {
+      for (int p = 0; p < ARTNET_NUM_PORTS; p++) {
         port_def* port = group->ports[p];
         if (!port || port->portUni != (data[addr + a] & 0x0F))
           continue; // No port, or universe doesnt match.
@@ -619,45 +603,23 @@ void espArtNetRDM::_artTODRequest(uint8_t* data) {
 }
 
 void espArtNetRDM::artTODData(uint8_t g, uint8_t p, uint16_t* uidMan, uint32_t* uidDev, uint16_t uidTotal, uint8_t state) {
-	// Initialise our reply
+
 	uint16_t len = ARTNET_TOD_DATA_SIZE + (ARTNET_RDM_UID_WIDTH * uidTotal);
-  // PacketArtTODData packet(g, p, _art->group[g]->netSwitch,
-  auto packet = PacketArtTODData(g, p, _art->group[g]->netSwitch,
-                                 getSubUni(g, p), state, uidTotal);
-
-	// uint8_t artTodData[len]; //XXX changed char to uint8_t, should work surely? was complaining about unsigned so beware
-  // memset(artTodData, 0, len);
-  // _artSetPacketHeader(artTodData, ARTNET_TOD_DATA);
-	// artTodData[11] = 14;                 // artNet version (14)
-	// artTodData[12] = 0x01;               // rdm standard Ver 1.0
-	// artTodData[13] = p + 1;              // port number (1-4 not 0-3)
-	// artTodData[20] = g + 1;              // bind index
-	// artTodData[21] = _art->group[g]->netSwitch;
-
-  // artTodData[22] = (state == RDM_TOD_READY)? 0x00: 0xFF;  // 0x00 TOD full, 0xFF  TOD not avail or incomplete
-
-	// artTodData[23] = (_art->group[g]->subnet << 4) | getPort(g, p)->portUni;
-	// artTodData[24] = uidTotal >> 8;      // number of RDM devices found
-	// artTodData[25] = uidTotal;
+  PacketArtTODData packet{g, p, _art->group[g]->netSwitch,
+                          getSubUni(g, p), state, uidTotal};
 
 	uint8_t blockCount = 0;
 	uint16_t uidPos = 0;
 
 	while (1) { //dunno about this hah. but guess uidtotal will always reach 0 evt
-		// artTodData[26] = blockCount;
-		// artTodData[27] = (uidTotal > 200) ? 200 : uidTotal;
 		packet.blockCount = blockCount;
 		packet.uidCount   = constrain(uidTotal, 0, ARTNET_MAX_UID_COUNT);
 
 		uint8_t uidCount = 0;
-
 		// Add RDM UIDs (48 bit each) - max 200 per packet
-		// for (uint16_t xx = 28; uidCount < ARTNET_MAX_UID_COUNT && uidTotal > 0; uidCount++) {
-		// for (uint16_t i = 0, uint8_t uidCount = 0;
 		for (uint16_t i = 0;
          uidCount < ARTNET_MAX_UID_COUNT && uidTotal > 0;
          uidCount++, uidTotal--) {
-			// uidTotal--;
 
 			packet.tod[i][0] = uidMan[uidTotal] >> 8;
 			packet.tod[i][1] = uidMan[uidTotal];
@@ -665,19 +627,10 @@ void espArtNetRDM::artTODData(uint8_t g, uint8_t p, uint16_t* uidMan, uint32_t* 
 			packet.tod[i][3] = uidDev[uidTotal] >> 16;
 			packet.tod[i][4] = uidDev[uidTotal] >> 8;
 			packet.tod[i][5] = uidDev[uidTotal];
-			// artTodData[xx++] = uidMan[uidTotal] >> 8;
-			// artTodData[xx++] = uidMan[uidTotal];
-			// artTodData[xx++] = uidDev[uidTotal] >> 24;
-			// artTodData[xx++] = uidDev[uidTotal] >> 16;
-			// artTodData[xx++] = uidDev[uidTotal] >> 8;
-			// artTodData[xx++] = uidDev[uidTotal];
 		}
 
     _sendPacket(_art->broadcastIP,
                 reinterpret_cast<uint8_t*>(&packet), len);
-		// eUDP.beginPacket(_art->broadcastIP, ARTNET_PORT);
-		// int test = eUDP.write(artTodData, len);
-		// eUDP.endPacket();
 
 		if(uidTotal == 0) break;
 		blockCount++;
@@ -709,7 +662,7 @@ void espArtNetRDM::_artRDM(uint8_t* data, uint16_t packetSize) {
 		if (net != group->netSwitch || sub != group->subnet)
       continue;
 
-    for (int p = 0; p < ARTNET_GROUP_MAX_PORTS; p++) {
+    for (int p = 0; p < ARTNET_NUM_PORTS; p++) {
       auto port = getPort(g, p);
       if (!port || port->portType != RECEIVE_RDM)
         continue; // If the port isn't in use
@@ -719,7 +672,6 @@ void espArtNetRDM::_artRDM(uint8_t* data, uint16_t packetSize) {
         rdmCallback(g, p, &c);
 
         bool ipSet = false;
-
         for (int q = 0; q < 5; q++) {
           // Check when last packets received.  Clear if over 200ms
           if (timeNow >= (port->rdmSenderTime[q] + 200))
@@ -742,30 +694,11 @@ void espArtNetRDM::rdmResponse(rdm_data* c, uint8_t g, uint8_t p) {
   auto port = getPort(g, p);
   auto group = _art->group[g];
 	uint16_t len = ARTNET_RDM_REPLY_SIZE + c->packet.Length + 1;
-  // auto rdmReply = PacketArtRDMResponse(c, group->netSwitch, getSubUni(g, p));
-  uint8_t subUni = getSubUni(g, p);
-  auto rdmReply = PacketArtRDMResponse(c, group->netSwitch, subUni);
+  PacketArtRDMResponse packet{c, group->netSwitch, getSubUni(g, p)};
 
-	// uint8_t rdmReply[len]; // Initialise our reply
-  // memset(rdmReply, 0, len);
-  // _artSetPacketHeader(rdmReply, ARTNET_RDM);
-	// rdmReply[11] = 14;                 // artNet version (14)
-	// rdmReply[12] = 0x01;               // RDM version - RDM STANDARD V1.0
-
-	// rdmReply[21] = group->netSwitch;
-	// rdmReply[22] = 0x00;              // Command - 0x00 = Process RDM Packet
-	// rdmReply[23] = (group->subnet << 4) | port->portUni;
-
-	// Copy everything except the 0xCC start code
-	// memcpy(&rdmReply[24], &c->buffer[1], c->packet.Length + 1);
-
-	for (int x = 0; x < 5; x++) {
+	for (int x = 0; x < 5; x++) { //always loop five?
 		if (port->rdmSenderIP[x] != INADDR_NONE) {
-
-      _sendPacket(port->rdmSenderIP[x], reinterpret_cast<uint8_t*>(&rdmReply), len);
-			// eUDP.beginPacket(getPort(g, p)->rdmSenderIP[x], ARTNET_PORT);
-			// int test = eUDP.write(rdmReply, len);
-			// eUDP.endPacket();
+      _sendPacket(port->rdmSenderIP[x], reinterpret_cast<uint8_t*>(&packet), len);
 		}
 	}
 }
@@ -873,36 +806,17 @@ void espArtNetRDM::sendDMX(uint8_t g, uint8_t p, uint8_t* data, uint16_t length)
 	if (length > 512) length = 512;
 	port->dmxChans = length;
 
-  // PacketArtDMX packet = {_dmxSeqID++, p, getSubUni(g, p), group->netSwitch, data, length};
-  // PacketArtDMX packet{_dmxSeqID++, p, getSubUni(g, p), group->netSwitch, data, length};
-  PacketArtDMX packet = PacketArtDMX(_dmxSeqID++, p, getSubUni(g, p),
-                              group->netSwitch, data, length);
-  // auto packet = new PacketArtDMX(_dmxSeqID++, p, getSubUni(g, p),
-  //                             group->netSwitch, data, length);
-
-	// packet.sequenceID     = _dmxSeqID++;
-	// packet.physicalPort   = p;
-	// packet.subUni         = (group->subnet << 4) | port->portUni;	// Subuni
-	// packet.net            = group->netSwitch & 0x7F;	  // Netswitch
-	// // packet.length       = length >> 8;		                  // DMX Data length
-	// packet.lenHi          = (length >> 8);		// DMX Data length
-	// packet.lenLo          = (length & 0xFF);
-  // memcpy(packet.data, data, length);
+  PacketArtDMX packet{_dmxSeqID++, p, getSubUni(g, p),
+                      group->netSwitch, data, length};
 
   const uint8_t headerLength = 18;
   auto ip = IPAddress(192,168,1,100);
   _sendPacket(ip, reinterpret_cast<uint8_t*>(&packet), (headerLength + length));
-  // _sendPacket(ip, reinterpret_cast<uint8_t*>(packet), (headerLength + length));
-	// eUDP.beginPacket(_art->broadcastIP, ARTNET_PORT); //illegal. to output we must become a controller and send artpoll.
-	// eUDP.beginPacket(, ARTNET_PORT);
-	// eUDP.write(reinterpret_cast<uint8_t*>(&packet), (headerLength + length));
-	// eUDP.endPacket();
 }
 
 void espArtNetRDM::setProtocolType(uint8_t g, uint8_t p, uint8_t type) {
   auto port = getPort(g, p);
 	if(!port) return;
-
 
 	// Increment or decrement our e131Count variable if the universe was artnet before and is now sACN
 	if (port->protocol == ARTNET && type != ARTNET) {
