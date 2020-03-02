@@ -163,12 +163,12 @@ int espArtNetRDM::handler() {
 }
 
 int espArtNetRDM::_artOpCode(uint8_t* data) {
-	if (String((char*)data) == ARTNET_ID) {
-		if (data[11] >= 14) {                 //protocol version [10] hi uint8_t [11] lo uint8_t
-			return data[9] * 256 + data[8];  //opcode lo uint8_t first
-		}
-	}
-	return 0;
+  auto header = reinterpret_cast<PacketArtDMX*>(data);
+  if(strncmp(header->ID, ARTNET_ID, 8)
+     && header->protocolVer >= ARTNET_PROTOCOL_VERSION) { // pollReplys lack that field tho. But for now guess we ignore those on purpuse anyways
+    return header->opCode; // need htons or w/e?
+  }
+  return 0;
 }
 
 
@@ -201,50 +201,37 @@ void espArtNetRDM::_artPollReply(bool force) {
 
 		for (int p = 0; p < ARTNET_NUM_PORTS; p++) { // Port details
       port_def* port = group->ports[p];
-
-			// Send blank values for empty ports
-      packet.portType[p] = 0, packet.goodInput[p] = 0, packet.goodOutput[p] = 0, packet.swIn[p] = 0, packet.swOut[p] = 0;
 			if (!port) continue;
 
-			if (port->portType != SEND_DMX) { // DMX or RDM out port
-				packet.portType[p]    |= 128;			      // Port Type (128 = DMX out)
-				// Get values for Good Output field
-				uint8_t go = 0;
-				if(port->dmxChans != 0)      go |= 128;	// data being transmitted
-				if(port->merging)            go |= 8;		// artnet data being merged
-				if(!port->mergeHTP)          go |= 2;		// Merge mode LTP
-				if(port->protocol != ARTNET) go |= 1;		// sACN. Should stay in whether or not lib retains support - artnet itself supports flag.
-				packet.goodOutput[p]  = go;				      // Good output (128 = data being transmitted)
+			int8_t gio = 0;
+      if(port->dmxChans > 0)    gio |= 128;   		// Good input/output (128 = data being received/transmitted)
 
+			if (port->portType == SEND_DMX) {      // DMX In port info
+				packet.portType[p]            |= 64;				     // Port type (64 = DMX in)
+        packet.goodInput[p]        = gio;       		// Good input (128 = data being received)
+				packet.swIn[p]        = port->portUni; //XXX was setting/getting ports[0] not [p], was that somehow correct or just more dumb shit? 	// swIn
+
+			} else if (port->portType != SEND_DMX) {         // DMX or RDM out port
+				packet.portType[p]           |= 128;			      // Port Type (128 = DMX out)
+				if(port->merging)            gio |= 8;		// artnet data being merged Get values for Good Output field
+				if(!port->mergeHTP)          gio |= 2;		// Merge mode LTP
+				if(port->protocol != ARTNET) gio |= 1;		// sACN. Should stay in whether or not lib retains support - artnet itself supports flag.
+				packet.goodOutput[p]  = gio;				      // Good output (128 = data being transmitted)
 				packet.swOut[p]       = port->portUni;  // swOut - port address
-
-			} else if (port->portType == SEND_DMX) { // DMX In port info
-				packet.portType[p] |= 64;				    // Port type (64 = DMX in)
-
-				if (port->dmxChans != 0)
-					packet.goodInput[p] = 128;       		// Good input (128 = data being received)
-
-				packet.swIn[p] = port->portUni; //XXX was setting/getting ports[0] not [p], was that somehow correct or just more dumb shit? 	// swIn
 			}
 		}
-
-		eUDP.beginPacket(_art->broadcastIP, ARTNET_PORT);
-		eUDP.write(reinterpret_cast<uint8_t*>(&packet), ARTNET_REPLY_SIZE);
-		eUDP.endPacket();
-
-		delay(0); // is yield necessary? i guess if have tons and tons of ports shit could turn south
+    _sendPacket(_art->broadcastIP, reinterpret_cast<uint8_t*>(&packet), ARTNET_REPLY_SIZE);
 	}
 }
 
-void espArtNetRDM::_artDMX(uint8_t* data) {
+void espArtNetRDM::_artDMX(uint8_t* data) { // name parseDMX or something..
 	IPAddress rIP = eUDP.remoteIP();
+  auto packet = reinterpret_cast<PacketArtDMX*>(data);
 
-	uint8_t net = (data[15] & 0x7F);
-	uint8_t sub = (data[14] >> 4);
-	uint8_t uni = (data[14] & 0x0F);
-
-	// Number of channels hi uint8_t first
-	uint16_t numberOfChannels = data[17] + (data[16] << 8);
+	uint8_t net = packet->getNetSwitch();
+	uint8_t sub = packet->getSubNet();
+	uint8_t uni = packet->getUni();
+	uint16_t numberOfChannels = packet->getLength();
 	uint16_t startChannel = 0;
 
 	for (int g = 0; g < _art->numGroups; g++) { // Loop through all groups

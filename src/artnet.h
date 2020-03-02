@@ -26,18 +26,21 @@ If not, see http://www.gnu.org/licenses/
 #define ARTNET_SHORT_NAME_LENGTH    18
 #define ARTNET_LONG_NAME_LENGTH     64
 #define ARTNET_NODE_REPORT_LENGTH   64
+#define ARTNET_NODE_REPORT_HEADER_LENGTH   15   //"#%04x[%d] %s". 14+\0. hack for now, make dynamic/adjustable...
 #define ARTNET_CANCEL_MERGE_TIMEOUT 2500
 #define DMX_BUFFER_SIZE             512
 #define DMX_MAX_CHANS               512
 
 #define ARTNET_MAX_GROUPS           16
 #define ARTNET_GROUP_MAX_PORTS      4
+#define ARTNET_NUM_PORTS            4
 #define ARTNET_DEFAULT_OEM          0x00ff      // Artnet OEM code - "unknown"
 #define ARTNET_DEFAULT_ESTA_MAN     0x7fff      // ESTA Manufacturer code - "prototyping reserved"
 #define ARTNET_DEFAULT_ESTA_DEV     0xEE000000  // RDM Device ID (used with Man Code to make 48bit UID)
 #define ARTNET_ID                   "Art-Net"
 #define ARTNET_ID_STR              'A', 'r', 't', '-', 'N', 'e', 't', '\0'
 #define ARTNET_PROTOCOL_VERSION     14
+#define ARTNET_RDM_VERSION          0x01        // RDM STANDARD V1.0
 
 // from other lib: according to the rdm spec,
 // this should be 278 bytes we'll set to 512 here, the firmware datagram is still bigger
