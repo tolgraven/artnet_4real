@@ -1,74 +1,68 @@
-# ArtNet V4 and sACN (E131) Library for esp8266
+# artnet4real 
 [![Build Status](https://travis-ci.com/JonasArnold/ArtNetE131Lib_esp8266.svg?branch=master)](https://travis-ci.com/JonasArnold/ArtNetE131Lib_esp8266)
 
-With this library you can receive or send ArtNet V4 or sACN (E131) on an ESP8266.
+artnet4real aims to be a modern, cross-platform, feature-complete, self-documenting,
+standalone C++ Art-Net v4 library including RDM and sACN switching support,
+sender merging, and apart from Node also full Controller functionality.
+It is likely very few of those things.
 
+Initially (aka. currently) developed for my own usage with esp-idf v4.0 and C++17,
+and still migrating away from Arduino headers.
+I'm very much still learning proper C++ as I go along, and am aware the code reflects
+this. Critique very welcome, contributions even moreso.
 
-Initial version by [Matthew Tong](https://github.com/mtongnz/ESP8266_ArtNetNode_v2/tree/master/libs/espArtnetRDM). The library was copied from there and extended.
-The library was extended by utilising the [E131 Lib by forkineye](https://github.com/forkineye/E131).
+Packet definition == packet parsing == packet construction:
+- yay bitfield and union abuse bonanza-fest
+- nay getters and setters
+This makes the driver itself lean and limited to business logic.
+It's also probably terrible for cross-platform aims.
+
+While eventually (re)built from scratch it's indebted to existing 
+libraries like ArtNode, ola-artnet, espArtNetRDM/espArtNetNode as well as
+headers from Artistic-License.
+
 
 ## USAGE
-
-** Note: ** The following library must be installed: [E131 by forkineye](https://github.com/forkineye/E131)
-
-Instanciate:
 ```
-  espArtNetRDM myArtRdm;
+using namespace an4r;
+auto driver = std::make_unique(artnet::Driver(yada));
 ```
 
-### Configuration:
+### Example Configuration:
 
-Initialize:
+You need to provide your own networking functions.
+With Arduino AsyncUDP:
 ```
-myArtRdm.init(ArtNetOEMCode, EstaManufacturerCode, macAddress);
-myArtRdm.init(shortName, ArtNetOEMCode, EstaManufacturerCode, macAddress);
-myArtRdm.init(shortName, longName, ArtNetOEMCode, EstaManufacturerCode, macAddress);
-myArtRdm.init(ipAddress, subnetMask, dhcpEnabled, ArtNetOEMCode, EstaManufacturerCode, macAddress);
-myArtRdm.init(ipAddress, subnetMask, dhcpEnabled, shortName, longName, ArtNetOEMCode, EstaManufacturerCode, macAddress);
+driver->init(ip, sub, mac);
+
+udp.listen(artnet::protocol::defaultUdpPort);
+udp.onPacket([this](AsyncUDPPacket& packet) { // mind this bugs out without PR #3290
+      this->driver->onPacket((uint32_t)packet.remoteIP(), packet.data(), packet.length());
+    });
+
+driver->setPacketSendFn([this](ip4_addr_t dest, uint7_t* data, uint16_t length) {
+      AsyncUDPMessage packet{length};
+      packet.write(data, length);
+      this->udp.sendTo(packet, dest, artnet::protocol::defaultUdpPort);
+    });
+
+driver->set{bunchOfOtherCallbacks};
+
+driver->begin();
 ```
+
 More information:
 [ArtNet OEM](https://art-net.org.uk/join-the-club/oem-code-listing/),
 [ESTA Manufacturer Code](http://tsp.esta.org/tsp/working_groups/CP/mfctrIDs.php),
-[Get MAC address of ESP8266](https://techtutorialsx.com/2017/04/09/esp8266-get-mac-address/)
 
-To add a ArtNet net and subnet:
+Future aim is to (optionally) abstract away Groups (4-slots of Artnet ports)
+as much as possible. Not yet the case. So first add a Group:
 ```
-uint8_t _group = myArtRdm.addGroup(netNum, subnetNum);  // store the return value
+auto groupId = artnet->
 ```
-
-To add a Port (Universe):
-
-`portType` can be:
-
-- `DMX_OUT` = receive DMX from Network
-- `DMX_IN` = send DMX to Network
-
-`htpMerge`: `true` for Highest Takes Precedence, `false` for Latest Takes Precedence.
-
+Then add ports:
 ```
-uint8_t _port = myArtRdm.addPort(_group, portNum, universeNum, portType, htpMerge);
-```
-
-To set the network protocol type:
-
-`protocolType` can be:
-
-- `ARTNET` = ArtNet V4
-- `sACN_UNICAST` = sACN Unicast
-- `sACN_MULTICAST` = sACN Multicast   **(not yet implemented)**
-
-```
-myArtRdm.setProtocolType(_group, _port, protocolType);  // store the return value
-```
-
-At the end of the configuration process start listening to UDP packets with this command:
-```
-myArtRdm.begin();
-```
-
-Place this function in main loop to let the library handle the data periodically:
-```
-myArtRdm.handler();
+driver->addPort(groupId, portNum, artnet::Universe(...));
 ```
 
 
@@ -76,39 +70,44 @@ myArtRdm.handler();
 
 Setup a callback function:
 ```
-myArtRdm.setArtDMXCallback(dmxHandle);
+driver->setArtDMXCallback([this](...) { ... });
 ```
-
-and implement the callback function like this:
-```
-void dmxHandle(uint8_t group, uint8_t port, uint16_t numChans, bool syncEnabled)
-{
-	if(group == _group && port == _port)
-	{
-		// read out the value of the dmx channel (-1 because buffer of dmx data starts at 0)
-		uint8_t valueOfDmxChannel = myArtRdm.getDMX(_group, _port)[channel -1];
-	}
-}
-```
-
 
 ### Send Data to ArtNet/sACN:
 
-To send data use the following function:
+To send data either provide Universe and data each time (currently supported):
 ```
-  myArtRdm.sendDMX(groupNum, portNum, broadcastAddress, dataArray, 512);
+  driver->sendDMX(artnet::Universe(...), dataPtr, len);
 ```
-
-
-
-### General:
-To set the Firmware version sent with each ArtPoll:
+...or set up your ports with persistent output buffers and simply signal to flush:
 ```
-  myArtRdm.setFirmwareVersion(fwVersion);
+  
+  driver->sendDMX(artnet::Universe(...));
 ```
 
-To set the default ArtNet IP (generates IP by using the MAC address):
+
+The driver keeps track of destinations per Art-Net spec.
+
+
+### Packet examples:
+
+Wha
 ```
-  myArtRdm.setDefaultIP();
+  driver->sendDMX(artnet::Universe(...));
+```
+
+### Ethos:
+```
+union Universe {
+  struct {
+    union {
+      uint8_t subUni;
+      struct { uint8_t portAddr: 4, subSwitch: 4; };
+    };
+    uint8_t netSwitch :7, :1;
+  };
+  uint16_t :4, netSub: 11, :1;
+  uint16_t address: 15, :1;
+}
 ```
 
