@@ -8,127 +8,151 @@
 #include <functional>
 #include <vector>
 #include <memory>
-#include <unordered_set>
 
 #include "platform.h"
 #include "protocol.h"
 #include "packet.h"
 #include "components.h"
 
-namespace an4r::artnet {
+namespace anfr { // better like before (wrapper meant for using; then more) except that gets too hectic in compiler errors...
 
-using namespace protocol;
+using namespace def; // tho mostly explicit now. try to extend to fully so.
 
-using ArtDMXCallback		= std::function<void(uint8_t, uint8_t, uint16_t, bool)>;
-using ArtSyncCallback		= std::function<void()>;
-using ArtRDMCallback		= std::function<void(uint8_t, uint8_t, packet::rdm::RdmData*)>;
-using ArtIPCallback			= std::function<void()>;
-using ArtAddressCallback	= std::function<void()>;
-using ArtTodRequestCallback	= std::function<void(uint8_t, uint8_t)>;
-using ArtTodFlushCallback	= std::function<void(uint8_t, uint8_t)>;
+using groupid_t = uint16_t;
+using portid_t  = uint8_t;
+namespace cb {
+using DMX        = std::function<void(uint8_t, uint8_t, uint8_t*, uint16_t, bool)>;
+using Sync       = std::function<void()>;
+using RDM        = std::function<void(uint8_t, uint8_t, packet::rdm::RdmData*)>;
+using IP         = std::function<void()>;
+using Address    = std::function<void()>;
+using TodRequest = std::function<void(uint8_t, uint8_t)>;
+using TodFlush   = std::function<void(uint8_t, uint8_t)>;
+}
 
-
-class Driver { // sooeh, static members possibly
+class Configuration {
   DeviceNetwork network;
-  IPSender syncSender, lastDmxFrameSender;
+  NodeName names{}; // well noneed
+  DeviceInfo deviceInfo{};
+
+};
+
+class Driver { // sooeh, static members possibly? guess might to sep some stuff to actually run different driver instances on same device w different netwworks or similar
+  DeviceNetwork network;
   IPSender lastRemoteIP; // XXX temp, just keep latest rIP here
 
   NodeName names{}; //prob overk
   NodeReport nodeReport;
   DeviceInfo deviceInfo{};
 
+  // Configuration cfg; // gather all the crap tbh. Get state vs config clean and organized...
+  // Driver(cfg).init(state);
+  // but basically any config change will at most result in same thing: push out new poll/reply
+  // to inform others of new state. So can eschew (sp??) all wrapper bs.
+
   std::vector<std::unique_ptr<Group>> groups;
   bool active = false;
 
 public:
 	Driver(const char* shortName, const char* longName = nullptr,
-         uint16_t oem = protocol::defaultOem, uint16_t esta = protocol::defaultEstaMan);
-  Driver(Driver&& rhs) = delete;
+         uint16_t oem = def::defaultOem, uint16_t esta = def::defaultEstaMan);
+  Driver(Driver&&) = delete;
+  Driver(const Driver&) = delete; // for now
 	~Driver() {}
 
-	void init(const IPAddress& ip, const IPAddress& subnet, uint8_t* mac, bool dhcp = true);
-	void init() { setDefaultIP(); }
+	void init(IPv4 ip, IPv4 subnet, uint8_t* mac, bool dhcp = true);
+	// void init() { setDefaultIP(); } // broken for now
 
-  // also just abstract away groups amap, add ports directly, groups are created to hold them as needed
-	uint8_t addGroup(uint8_t, uint8_t); // Group& addGroup(uint8_t, uint8_t);
-	int addPort(uint8_t g, uint8_t p, uint8_t portAddr, PortMode type = PortArtnetIn);
+  // ideally we're not really explicitly dealing with groups from outside tho...
+	Group* addGroup(uint8_t, uint8_t); // Group& addGroup(uint8_t, uint8_t);
+	Group* addGroup(Universe); // Group& addGroup(uint8_t, uint8_t);
+	// Group* getGroup(uint8_t) { return;  } 
+	int addPort(uint8_t g, uint8_t p, uint8_t portAddr, PortMode type = PortArtnetIn); //return Port* instead?
+	Port* addPort(Universe& universe, PortMode type = PortArtnetIn); // as it should be. Handle logic of what group and port number it is internally, mostly ininteresting to end user.
+	// Port* addPort(uint8_t g, uint8_t p, uint8_t portAddr, PortMode type = PortArtnetIn); //return Port* instead?
 	bool closePort(uint8_t, uint8_t);
 
+  std::vector<Port*>& setupBulkInputs(Universe baseAddr, uint8_t* dataStart, size_t bytes); // or whatever will be called....
+
+  // some states: pre-begin, paused, running w traffic, w/o new data, without receiving... (send repeats 4s)
   void begin() { // well what else do if not our socket.
     active = true;
-    sendPollReply(); // Send initial unsolicited ArtPollReply to tell everyone we're here
+    sendPollReply(); // Send initial unsolicited ArtPollReply to tell everyone we're here. Would be ArtPoll if we're the server, etc...
   }
-  void pause() { active = false; }
+  void stop() { active = false; }
+  bool isActive() { return active; }
   
-	uint8_t* getDMX(uint8_t, uint8_t);
+	// uint8_t* getDMX(uint8_t, uint8_t); // doesnt make much sense. Callback sends buffer loc. Ports can provide that info directly other times.
 	// dmx_buf_t getDMX(Universe uni);
 
-	// void setProtocolType(uint8_t, uint8_t, uint8_t); // protocol functions type: 0 = ARTNET, 1 = SACN_UNICAST, 2 = SACN_MULTICAST
-	// uint8_t getProtocolType(uint8_t, uint8_t); /* void setE131Uni(uint8_t, uint8_t, uint16_t); */
+  int onPacket(IPv4 ip, uint8_t* data, size_t length); // check validity and pass on to internal fns
 
-  int onPacket(IPAddress ip, uint8_t* data, size_t length); // check validity and pass on to internal fns
-
-  using PacketSendFn = std::function<void(IPAddress&, uint8_t*, size_t, uint16_t)>;
+  using PacketSendFn = std::function<void(IPv4&, uint8_t*, size_t, uint16_t)>;
   void setPacketSendFn(PacketSendFn fn) { packetSender = fn; }
 
-  void setArtDMXCallback(ArtDMXCallback cb) { dmxCallback = cb; }
-  void setArtSyncCallback(ArtSyncCallback cb) { syncCallback = cb; }
-  void setArtRDMCallback(ArtRDMCallback cb) { rdmCallback = cb; }
-  void setArtIPCallback(ArtIPCallback cb) { ipCallback = cb; }
-  void setArtAddressCallback(ArtAddressCallback cb) { addressCallback = cb; }
-  void setTODRequestCallback(ArtTodRequestCallback cb) { todRequestCallback = cb; }
-  void setTODFlushCallback(ArtTodFlushCallback cb) { todFlushCallback = cb; }
+  void setArtDMXCallback(cb::DMX&& cb) { dmxCallback = std::move(cb); }
+  void setArtSyncCallback(cb::Sync cb) { syncCallback = cb; }
+  void setArtRDMCallback(cb::RDM cb) { rdmCallback = cb; }
+  void setArtIPCallback(cb::IP cb) { ipCallback = cb; }
+  void setArtAddressCallback(cb::Address cb) { addressCallback = cb; }
+  void setTODRequestCallback(cb::TodRequest cb) { todRequestCallback = cb; }
+  void setTODFlushCallback(cb::TodFlush cb) { todFlushCallback = cb; }
 
-  // these will go. once Group / Port classes encapsulated enough lib user getting
-  // and manipulating them directly is perfectly safe.
-  Universe getAddr(uint8_t groupIndex, int portIndex = -1);
-	// void setNet(uint8_t, uint8_t);
-	// void setSubSwitch(uint8_t, uint8_t);
-	// void setUni(uint8_t, uint8_t, uint8_t);
-	void setPortType(uint8_t, uint8_t, PortMode t);
 
-  // template<class T> void setShortName(T shortName);
-  // template<class T> void setLongName(T longName);
+  // template<class T> void setShortName(T&& shortName) {}
+  // template<class T> void setLongName(T&& longName) {}
 	void setShortName(char*);
 	char* getShortName();
 	void setLongName(char*);
 	char* getLongName();
 
-	void setFirmwareVersion(uint16_t fw) { deviceInfo.fwVersion = fw; }
+	// void setFirmwareVersion(uint16_t fw) { deviceInfo.fwVersion = fw; }
 	void setDefaultIP();
-  void setIP(IPAddress ip, IPAddress subnet = IPAddress(255,255,255,0));
+  void setIP(IPv4 ip, IPv4 subnet = IPv4(255,255,255,0));
   const DeviceNetwork& getNetworkCfg() const { return network; };
   void setNetworkCfg(DeviceNetwork& newConfig) { network = newConfig; }; // and do w/e refresh
+  const DeviceInfo& getDeviceInfo() const { return deviceInfo; };
+  // void setNetworkCfg(DeviceInfo& newInfo) { network = newConfig; }; // and do w/e refresh
 
-	void setNodeReport(char*, RC); // void setNodeReport(const String& text);
-	void setArtDiagData(char* diagString, uint8_t priority = (uint8_t)DiagPriority::Low); //fix this yo. tho also per port i guess
+	void setNodeReport(char*, RC);
+	void setArtDiagData(char* diagString, DiagPriority priority = DiagPriority::Low); //fix this yo. tho also per port i guess
 	void sendRdmResponse(packet::rdm::RdmData*, Port* port);
-	void artTODData(Port* port, uint16_t*, uint32_t*, uint16_t, uint8_t);
+	void sendTODData(Port* port);
 
   void sendIPProgReply();
 	void sendPollReply(); // since not polling on reg
-	void sendDMX(uint8_t group, uint8_t port, uint8_t* data, uint16_t length);
-	void sendDMX(Port* port);
+	void sendDMX(uint8_t group, uint8_t port, uint8_t* data, size_t length);
+	void sendDMX(Port* port, uint8_t* data, size_t length); // should be std - easy to get port from g+p, saved handle, Universe...
+	void sendDMX(Universe addr, uint8_t* data, size_t length); // should be std - easy to get port from g+p, saved handle, Universe...
 
+  Universe getAddr(uint8_t groupIndex, int portIndex = -1);
   Port* getPort(uint8_t g, uint8_t p) {
     auto& group = groups[g];
     if(group) {
-      auto& port = group->ports[p];
-      if(port) return port.get();
+      return group->getPort(p);
+      // auto& port = group->ports[p];
+      // if(port) return port.get();
     }
     return nullptr;
-    // return groups[g]?
-    //        &*(groups[g]->ports[p]): // will bang here if p oor
-    //        nullptr;
 	}
 
 private:
+  // first strategy should be call packet length method if available.
+  // Some nice c++17 exts to that...
   template<class Packet>
-  void sendPacket(IPAddress dest, Packet* packet, uint16_t length = sizeof(Packet)) {
-    if(active && packetSender) {
-      packetSender(dest, reinterpret_cast<uint8_t*>(packet), length, protocol::defaultUdpPort);
+  void sendPacket(IPv4 dest, Packet* packet, uint16_t length = sizeof(Packet)) {
+    static bool didWarn = false;
+    if(!active) {
+      if(didWarn) return;
+      logf("Driver not active, won't send\n");
+      didWarn = true;
+    } else if(!packetSender) {
+      if(didWarn) return;
+      logf("No PacketSendFn installed in Driver, can't send\n");
+      didWarn = true;
     } else {
-      // error "not active or no sendfn"
+      packetSender(dest, reinterpret_cast<uint8_t*>(packet), length, def::defaultUdpPort);
+      didWarn = false;
     }
   }
 
@@ -136,13 +160,13 @@ private:
 
   PacketSendFn packetSender;
 
-	ArtDMXCallback dmxCallback; // using from header not taking?
-	ArtSyncCallback syncCallback;
-	ArtRDMCallback rdmCallback;
-	ArtIPCallback ipCallback;
-	ArtAddressCallback addressCallback;
-	ArtTodRequestCallback todRequestCallback;
-	ArtTodFlushCallback todFlushCallback;
+	cb::DMX dmxCallback;
+	cb::Sync syncCallback;
+	cb::RDM rdmCallback;
+	cb::IP ipCallback;
+	cb::Address addressCallback;
+	cb::TodRequest todRequestCallback;
+	cb::TodFlush todFlushCallback;
 };
 
-} // END NAMESPACE an4
+} // END NAMESPACE an4r::artnet

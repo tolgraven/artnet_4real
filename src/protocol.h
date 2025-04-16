@@ -1,11 +1,15 @@
 #pragma once
 
-#include <Arduino.h> // XXX temp
+#include <cstdint>
+#include <stddef.h>
 
-namespace an4r::artnet::protocol {
+#include "platform.h"
+
+namespace anfr::def {
+
 
 const uint32_t defaultUdpPort       = 6454;
-// const char* id                      = "Art-Net";
+constexpr const char* idStr         = "Art-Net";
 // #define idStr                    'A', 'r', 't', '-', 'N', 'e', 't', '\0'
 #define ARTNET_ID_STR               'A', 'r', 't', '-', 'N', 'e', 't', '\0'
 const uint32_t protocolVersion      = 14;
@@ -13,8 +17,9 @@ const uint32_t rdmVersion           = 0x01 ;       // RDM STANDARD V1.0
 
 const size_t bufferMax              = 600;
 const size_t dmxBufferSize          = 512;
-const size_t pollReplySize          = 239;
-const size_t ipProgReplySize        = 34;
+const size_t senderSlots            = 2;
+// const size_t pollReplySize          = 239;
+// const size_t ipProgReplySize        = 34;
 const size_t rdmReplySize           = 24;
 const size_t todDataSize            = 28;
 const uint32_t addressOffset        = 18;
@@ -22,6 +27,7 @@ const uint32_t addressOffset        = 18;
 const size_t shortNameLength        = 18;
 const size_t longNameLength         = 64;
 const size_t nodeReportLength       = 64;
+constexpr const char* nodeReportHeaderFmt = "#%04x[%d] %s";  //. at least the 4char hex in beginning is per spec cant remember look up
 const size_t nodeReportHeaderLength = 15;   //"#%04x[%d] %s". 14+\0. hack for now, make dynamic/adjustable...
 
 // time defines
@@ -40,10 +46,12 @@ const uint32_t defaultEstaDev       = 0xEE000000;  // RDM Device ID (used with M
 // this lib has it at 24 lol
 const uint32_t maxRdmData           = 278;
 
+const IPv4 primaryBroadcast{2, 255, 255, 255};
+const IPv4 secondaryBroadcast{10, 255, 255, 255};
 
-enum class Op: uint16_t {
-  Poll             = 0x2000, // This is an ArtPoll packet		= no other data is contained in this UDP packet
-}; // seems kooler
+// enum class Op: uint16_t {
+//   Poll             = 0x2000, // This is an ArtPoll packet		= no other data is contained in this UDP packet
+// }; // seems kooler
 
 enum OpCode: uint16_t {
   OpPoll             = 0x2000, // This is an ArtPoll packet		= no other data is contained in this UDP packet
@@ -124,7 +132,8 @@ enum PortMode: uint8_t { // actual values in Port Info packet field. Dunno what 
 //   DMX = 0b00, ArtnetToDMX = 0b01, DMXToArtnet = 0b10, ArtnetHub = 0b11
 // };
 enum protocol_type : uint8_t {
-	ARTNET = 0, SACN_UNICAST = 1, SACN_MULTICAST = 2
+	// ARTNET = 0, SACN_UNICAST = 1, SACN_MULTICAST = 2
+	ARTNET = 0x60, SACN = 0x70 // why not, bc maps onto Ac sel
 };
 
 // Artnet Node Report Codes
@@ -150,5 +159,8 @@ enum class DiagPriority: uint8_t {
   Low	= 0x10, Med = 0x40, High = 0x80, Critical = 0xe0, Vol = 0xf0, None = 0xff
 }; // The message priority, see DpXxxx defines above.
 
+enum class TODCommand: uint8_t {
+  None = 0, Flush
+};
 
 }

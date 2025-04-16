@@ -2,42 +2,119 @@
  */
 #pragma once
 
+#include "platform.h"
 #include "protocol.h"
 #include "components.h"
 
 
-namespace an4r::artnet {
+namespace anfr {
 
 namespace packet {
 
-using namespace protocol;
+using namespace def;
+
+// WANT:
+// - clean ctors alt for all packets
+// - apart from ctor prefer ext helpers for packets?
+//     ...certainly for stuff that can be templatized.
 
 
 #pragma pack(push, 1)
 
 namespace rdm {
 
+#define COUNT_DEVICE_MODEL_DESCRIPTION 		32
+#define COUNT_MANUFACTURER_LABEL 			32
+#define COUNT_DEVICE_LABEL 					32
+#define COUNT_SOFTWARE_LABEL 				32
+#define COUNT_PERSONALITY_DESCRIPTION 		32
+#define COUNT_PERSONALITY_LONG_DESCRIPTION 	64
+#define COUNT_SELF_TEST_DESCRIPTION 		32
+#define COUNT_SLOT_DESCRIPTION 				8
+#define COUNT_SENSOR_DESCRIPTION 			32
+#define COUNT_RDM_MAX_FILE_BLOCK			216
+#define COUNT_PRESET_TRANSFER				64
+
+enum class Cmd: uint8_t {
+  ResponseOffset = 0x01,
+  Discovery = 0x10, DiscoveryResponse = 0x11,
+  Get = 0x20, GetResponse = 0x21,
+  Set = 0x30, SetResponse = 0x31
+};
+enum CmdClass: uint8_t {
+  ResponseOffset = 0x01,
+  DiscoveryCommand = 0x10, DiscoveryCommandResponse = 0x11,
+  GetCommand = 0x20, GetCommandResponse = 0x21,
+  SetCommand = 0x30, SetCommandResponse = 0x31
+};
+
+enum class PID: uint16_t {
+DISCOVERY_UNIQUE_BRANCH = 0x0001, DISCOVERY_MUTE, DISCOVERY_UN_MUTE,
+PROXIED_DEVICES = 0x0010, PROXIED_DEVICE_COUNT, COMMS_STATUS	= 0x0015,
+GET_POLL = 0x0020,  // Queued messages
+STATUS_MESSAGES = 0x0030, STATUS_ID_DESCRIPTION, CLEAR_STATUS_ID, SUB_DEVICE_STATUS_REPORT_THRESHOLD,
+
+SupportedParameters = 0x0050, PARAMETER_DESCRIPTION,
+
+DeviceInfo = 0x0060, PRODUCT_DETAIL_ID_LIST = 0x0070,
+DeviceModelDesc = 0x0080, ManufacturerLabel, DeviceLabel,
+
+FACTORY_DEFAULTS = 0x0090,
+
+LANGUAGE_CAPABILITIES = 0x00a0, LANGUAGE = 0x00b0,
+SOFTWARE_VERSION_LABEL = 0x00c0, BOOT_SOFTWARE_VERSION_ID, BOOT_SOFTWARE_VERSION_LABEL,
+
+DMX_PERSONALITY = 0x00e0, DMX_PERSONALITY_DESCRIPTION,
+DMX_START_ADDRESS = 0x00f0,
+
+SLOT_ID = 0x0120, SLOT_DESCRIPTION, SLOT_DEFAULT_VALUE,
+
+SENSOR_DEFINITION = 0x0200, SENSOR, SENSOR_RECORD_ALL,
+DIMMER_TYPE = 0x0301, DIMMER_CURVE_CLASS,  //These are draft pids awaiting resolution of RDM standard V1.1
+DEVICE_HOURS = 0x0400, LAMP_HOURS, LAMP_STRIKES, LAMP_STATE, LAMP_ON_MODE,
+
+DISPLAY_INVERT = 0x0500, DISPLAY_LEVEL,
+PAN_INVERT = 0x0600, TILT_INVERT, PAN_TILT_SWAP,
+
+IDENTIFY_DEVICE = 0x1000, RESET_DEVICE,
+PERFORM_SELFTEST = 0x1020, SELF_TEST_DESCRIPTION,
+CAPTURE_PRESET = 0x1030, PRESET_PLAYBACK,
+
+BULK_DATA_REQUEST = 0x2060, BULK_DATA_OFFER = 0x2070, BULK_DATA_QUERY = 0x2080,
+
+UNSUPPORTED_ID = 0x7fff
+};
+
+// Licence published PID's
+// ART_PROGRAM_UID				0x8000
+// ART_LS_SPECIAL				0x8001	//used by Light-Switch for product sync
+// ART_SC_SPECIAL				0x8002	//used by Sign-Control & Light-Switch for product sync (V3.08 firmware onwards)
+// ART_DATA_LOSS_MODE			0x8003	//used by Artistic products to define action on loss of data.
+// ART_FORCE_ROM_BOOT			0x8004	//used by Artistic products to force rom boot / factory restart
+// ART_PRESET_TRANSFER			0x8005	//used by Artistic products to transfer preset data
+// // Get and Set Response packets have a 2 byte payload (Preset number (1-x), page (0-7) )
+// // Set and Get Response packets have a 66 byte payload (Preset number (1-x), page (0-7), array of values[64])
+// // Data is moved in 64 byte chunks so multiple calls needed if footprint>64.
+//
 union RdmData {
   static const uint16_t rdmStartCode = 0xCC01;
   struct {
     // uint16_t startCode = rdmStartCode;    // Start Code 0xCC01 for RDM - we skip? but still need around to pass onto physical or w/e...
     uint8_t  length;        // defines slot containing Chksum hi byte, range 23-255, "slotcount"
     RdmUid dest, src;
-    uint8_t sequenceID;   // transaction number, not checked
-    enum Response: uint8_t {
+    uint8_t transactionNumber;   // transaction number, not checked
+    enum Response: uint8_t { // dunno bout this. Wireshark has Port ID here?
       Ack = 0x00, AckTimer = 0x01, NackReason = 0x02, AckOverflow = 0x03, AckBulkDraft	= 0x03
     } responseType; // ack code / port ID
     uint8_t  msgCount;     // Message count queued at device
     uint16_t subDev;       // sub device number (root = 0)
-    enum CmdClass: uint8_t {
-      DiscoveryCommand = 0x10, DiscoveryCommandResponse = 0x11,
-      GetCommand = 0x20, GetCommandResponse = 0x21,
-      SetCommand = 0x30, SetCommandResponse = 0x31
-    } cmdClass;
 
-    uint16_t pid;          // parameter ID. there are hundreds to eh just use RDM.h
+    CmdClass cmdClass;
+    // uint16_t pid;          // parameter ID. there are hundreds to eh just use RDM.h
+    PID  pid;          // parameter ID - type of request. there are loads.
     uint8_t  dataLength;   // parameter data length "parameterslotcount" in bytes, "also SlotCount+23=ParameterSlotCount" <- guess that means it rolls over? or they wrote wrong
     uint8_t  data[231];    // data field
+    // then checksum at end??
   } packet{};
 
   struct {
@@ -64,15 +141,15 @@ namespace art {
 
 struct Header { // Core Artnet header. Inherited by all other packets.
   Header(OpCode opCode): opCode(opCode) {}
-	// const char ID[8] = {protocol::idStr}; // protocol ID = "Art-Net"
-	// const char ID[8] = protocol::idStr; // protocol ID = "Art-Net"
+	// const char ID[8] = {def::idStr}; // protocol ID = "Art-Net"
+	// const char ID[8] = def::idStr; // protocol ID = "Art-Net"
 	const char ID[8] = {ARTNET_ID_STR}; // protocol ID = "Art-Net"
-	// const char ID[8] = {protocol::id}; // protocol ID = "Art-Net"
+	// const char ID[8] = {def::id}; // protocol ID = "Art-Net"
 	OpCode opCode;
 };
 struct HeaderExt: Header { // Most packets also add the protocol version. maybe call HeaderExt or w/e
   HeaderExt(OpCode opCode): Header(opCode) {}
-	const uint16_t protocolVer = protocol::protocolVersion << 8; // hi byte first so just switch the damn def.
+	const uint16_t protocolVer = def::protocolVersion << 8; // hi byte first so just switch the damn def.
 };
 
 struct Poll: HeaderExt {
@@ -89,8 +166,7 @@ struct Poll: HeaderExt {
 };
 
 enum PortProtocol: uint8_t {
-  // DMX512 = 0b000000, MIDI = 0b000001, Avab, CMX, ADB, ArtNet // note 0b not 0x
-  DMX512 = 0, MIDI, Avab, CMX, ADB, ArtNet // note 0b not 0x
+  DMX512 = 0, MIDI, Avab, CMX, ADB, ArtNet
 };
 
 struct PollReply: Header { // we can extend packed like dis?
@@ -98,7 +174,8 @@ struct PollReply: Header { // we can extend packed like dis?
       DeviceInfo& deviceInfo, Group& group): // TODO pass nodeReport as well...
     Header(OpPollReply),
     ip(uint32_t(network.ip)), netSwitch(group.addr.netSwitch), subSwitch(group.addr.subSwitch),
-    names(names), portCount(group.numPorts << 8), //hmm ze shift
+    // names(names), portCount(group.numPorts << 8), //hmm ze shift
+    names(names), portCount(group.ports.size() << 8), //hmm ze shift
     mac(network.mac), bindIp(ip), bindIndex(group.index),
     webConfig(false), dhcpUsed(network.dhcp), dhcpSupported(true), // not necessarily i guess...
     portAddress15Bit(true), // we are v4
@@ -107,8 +184,7 @@ struct PollReply: Header { // we can extend packed like dis?
 
   std::vector<Universe> activeInputs() {
     std::vector<Universe> ins;
-    for(auto p=0; p < protocol::numPorts; p++) {
-      // Serial.printf("Port: %u, uni: %u / %u\n", p, swIn[p], swOut[p]);
+    for(auto p=0; p < def::numPorts; p++) {
       // if(goodInput[p].receivingData) // well maybe first check mode or w/e but yeah enough?
       //   ins.emplace_back(swIn[p], subSwitch, netSwitch);
       if(goodOutput[p].sendingData) // keep rereading spec until fucking grasp in/out/whatiswhat
@@ -118,11 +194,11 @@ struct PollReply: Header { // we can extend packed like dis?
   }
 
   uint32_t  ip          = 0;         // 0 is valid, means not configured
-	uint16_t  port				= protocol::defaultUdpPort;   // 6454. lo, hi...
+	uint16_t  port				= def::defaultUdpPort;   // 6454. lo, hi...
 	uint16_t  fwVersion	  = 0;         // uint8_t fwHi = 0, fwLo = 0; //
 	uint8_t   netSwitch		= 0;         // Bits 14-8 of the 15 bit universe number are encoded into the bottom 7 bits of this field.
 	uint8_t   subSwitch		= 0;         // Bits 7-4 of the 15 bit universe number are encoded into the bottom 4 bits of this field.
-	uint16_t  oem				  = protocol::defaultOem; // uint8_t oemHi = 0x00, oemLo = 0xff;
+	uint16_t  oem				  = def::defaultOem; // uint8_t oemHi = 0x00, oemLo = 0xff;
 	uint8_t   ubeaVersion	= 0;
 
   struct Status {
@@ -139,29 +215,23 @@ struct PollReply: Header { // we can extend packed like dis?
       } indicators: 2;
   } status{false, true, false, Status::PA::Network, Status::Indicators::Normal}; // XXX no defaults, create from passed config!
 
-	uint16_t  estaMan     = protocol::defaultEstaMan; // lo, hi...
+	uint16_t  estaMan     = def::defaultEstaMan; // lo, hi...
   NodeName names;
-	char nodeReport[protocol::nodeReportLength] = {0}; // Text feedback of Node status, errors, debug..
+	char nodeReport[def::nodeReportLength] = {0}; // Text feedback of Node status, errors, debug..
 
   uint16_t portCount     = 0;         // 0-4, whichever biggest of in/out port count
   struct {
     struct {
-      // bool : 5, // seems every bit below is protocol
-      //       protocolIsMidi: 1;  //  0-5 protocol number (0= DMX, 1=MIDI)
       // enum PortProtocol: uint8_t {
-      // enum: uint8_t {
-      //   DMX512 = 0x000000, MIDI, Avab, CMX, ADB, ArtNet
-      // }
+      // enum: uint8_t { DMX512 = 0x000000, MIDI, Avab, CMX, ADB, ArtNet }
       PortProtocol prot: 6;
       // union {
-        // struct {
-        //   bool input: 1, output: 1; // or prob gotta wrap struct
-        // };
-        PortMode mode: 2; // warning isnt true afaict, how silence
+        // struct { bool input: 1, output: 1; }; // or prob gotta wrap struct
+      PortMode mode: 2; // warning isnt true afaict, how silence
       // };
-    // } type[protocol::numPorts] = {}; // niet good init
-    // } type[protocol::numPorts] = {PortProtocol::DMX512, false, false}; // niet good init
-    } type[protocol::numPorts] = {PortProtocol::DMX512, PortMode::PortDMX}; // niet good init
+    // } type[def::numPorts] = {}; // niet good init
+    // } type[def::numPorts] = {PortProtocol::DMX512, false, false}; // niet good init
+    } type[def::numPorts] = {PortProtocol::DMX512, PortMode::PortDMX}; // niet good init
 
     struct { // NOPE. have to stick to anon struct GoodInput { // might as well keep named since multiple instances = no passthrough anyways
         bool : 2,                   // 0-1 unused
@@ -171,7 +241,7 @@ struct PollReply: Header { // we can extend packed like dis?
              sipsInData: 1,         // 5 data includes SIPs,
              testPacketsInData: 1,  // 6 data includes test packets
              receivingData: 1;      // 7 data active,
-    } goodInput[protocol::numPorts] = {};
+    } goodInput[def::numPorts] = {};
     struct {
         bool sacn: 1,                 // supposed fill might actually be sACN slot... in some extension?
              mergeLPT: 1,             // 1 DMX output merge mode LTP
@@ -181,10 +251,10 @@ struct PollReply: Header { // we can extend packed like dis?
              sipsInData: 1,           // 5 data includes SIPs,
              testPacketsInData: 1,    // 6 data includes test packets
              sendingData: 1;          // 7 data active,
-    } goodOutput[protocol::numPorts] = {}; // but couldnt have multiple copies of anon struct...
+    } goodOutput[def::numPorts] = {}; // but couldnt have multiple copies of anon struct...
     // fix type for below? used elsewhere.
-    uint8_t swIn[protocol::numPorts]       = {0},   // Bits 3-0 of the 15 bit universe number are encoded into the low nibble
-            swOut[protocol::numPorts]      = {0};   // This is used in combination with SubSwitch and NetSwitch to produce the full universe address.  THIS IS FOR INPUT/OUTPUT - ART-NET or DMX, NB ON ART-NET II THESE 4 UNIVERSES WILL BE UNICAST TO.
+    uint8_t swIn[def::numPorts]       = {0},   // Bits 3-0 of the 15 bit universe number are encoded into the low nibble
+            swOut[def::numPorts]      = {0};   // This is used in combination with SubSwitch and NetSwitch to produce the full universe address.  THIS IS FOR INPUT/OUTPUT - ART-NET or DMX, NB ON ART-NET II THESE 4 UNIVERSES WILL BE UNICAST TO.
   };
 
 	uint8_t swVideo     = 0;    // Low nibble is the value of the video output channel
@@ -219,40 +289,40 @@ struct PollReply: Header { // we can extend packed like dis?
 struct DMX: public HeaderExt {
   DMX(uint8_t seqId, Port* port, uint8_t* payload, uint16_t length):
     HeaderExt(OpDmx), // or OpOutput
-    sequenceID(seqId), portId(port->index), subUni(port->addr.subUni),
+    sequenceID(seqId), portId(port->index + 1), subUni(port->addr.subUni),
     net(port->addr.netSwitch), length(htons(length)),
     data(*((dmx_buf_t*)payload)) {}
 	uint8_t sequenceID		= 1;
-	uint8_t portId	      = 0;  // physical Port ID 0-3 (not really necessary debug/info)
+	uint8_t portId	      = 0;  // physical Port ID 1-4 (not really necessary debug/info)
 	uint8_t subUni				= 0;  // sub + uni: low 8 bits of 15bit universe
 	uint8_t net           = 0;  // high 7 bits of 15bit universe
 	uint16_t length       = 0;
   dmx_buf_t data;
 
+  static const uint8_t headerLength = 18;
   Universe getUniverse() { return Universe(subUni, net); }
   uint16_t dmxDataLen()  { return htons(length); }
 };
 
 
-const uint8_t maxRdmAddressCount = 32;
 const int maxRdmDataLength = 278;
-// according to the rdm spec, this should be 278 bytes we'll set to 512 here, the firmware datagram is still bigger
-// enum { ARTNET_MAX_RDM_DATA = 512 };
 
-// enum rdm_tod_state { RDM_TOD_NOT_READY, RDM_TOD_READY, RDM_TOD_ERROR };
 enum class TODState: uint8_t { NOT_READY = 0, READY, ERROR };
 
 struct TODData: HeaderExt  {
-  static const uint16_t maxUidCount = 200;
-  static const uint8_t rdmUidWidth = 6;  //typ, 48 bits
+  inline static const uint16_t maxUidCount = 200;
 
-  TODData(Port* port, uint8_t state, uint16_t uidTotal):
+  TODData(Port* port, uint16_t uidTotal, uint8_t blockCount = 0):
     HeaderExt(OpTodData),
     port(port->index + 1), bindIndex(port->group->index + 1), netSwitch(port->addr.netSwitch),
-    cmdRes((state == (uint8_t)TODState::READY)? TodFull: TodNak), //,  // 0x00 TOD full, 0xFF  TOD not avail or incomplete)
-    address(port->addr.subUni), uidTotal(htons(uidTotal)) {}
-  uint8_t  rdmVer     = protocol::rdmVersion;    // RDM version - RDM STANDARD V1.0
-  uint8_t  port; //physical?
+    cmdRes((uidTotal == 0) || (blockCount > 0)?  TodNak:  // Nak both means n/a and "incomplete subsection, so makes sense"
+                                                 TodFull), // packet contains a full flush, or is starting one
+    // address(port->addr.subUni), uidTotal(htons(uidTotal)) //,
+    address(port->addr.subUni), uidTotal(htons(uidTotal)), //,
+    uidCount(std::min(uidTotal, maxUidCount))
+    {}
+  uint8_t  rdmVer     = def::rdmVersion;    // RDM version - RDM STANDARD V1.0
+  uint8_t  port;       //physical
   uint8_t  spare[6]   = {0};
   uint8_t  bindIndex;
   uint8_t  netSwitch;
@@ -260,30 +330,36 @@ struct TODData: HeaderExt  {
     TodFull = 0x00, TodNak = 0xFF // Full Discovery / ToD not available.
   } cmdRes;
   uint8_t  address;
-  uint16_t uidTotal;
-  uint8_t  blockCount;
-  uint8_t  uidCount;
+  uint16_t uidTotal;            // total count of devices we're aware of
+  uint8_t  blockCount = 0;      // incr when multiple  packets in sequence.
+  uint8_t  uidCount;            // count of devices in this packet (since max 200)
   std::array<RdmUid, maxUidCount> device; // uint8_t  tod[maxUidCount][rdmUidWidth] = {};
-  size_t getLength() { return protocol::todDataSize + (rdmUidWidth * uidTotal); } // bc might be shorter than sizeof
+
+  size_t getLength() { return def::todDataSize + (sizeof(RdmUid) * uidCount); } // bc might be shorter than sizeof
 };
 
+
 struct TODRequest: HeaderExt  {
+  static const uint8_t maxRdmAddressCount = 32;
+
+  // "node receiving this must not interpret as forcing a full discovery" - only poweron + TODControl Flush
+  // looks like these are only supposed to be sent by directed bcast (by Controller and Input Gateway)
+  // - but ola is unicasting to us...
   TODRequest(): HeaderExt(OpTodRequest) {}
   uint8_t  filler[2] = {0};
   uint8_t  spare[7]  = {0};
   uint8_t  net;     // hi 7 bits port address
-  uint8_t  command; // always 0
-  uint8_t  adCount; // max maxRdmAddressCount = 32
-  std::array<uint8_t, maxRdmAddressCount> address; // low byte of port address
+  TODCommand command = TODCommand::None; // always 0
+  uint8_t  adCount; // up to max maxRdmAddressCount = 32
+  std::array<uint8_t, maxRdmAddressCount> address; // low byte of port address asked to respond - subSwitch + "Universe"
 };
+
 struct TODControl: HeaderExt  {
-  TODControl(): HeaderExt(OpTodControl) {} // only minor diff request and control
+  TODControl(): HeaderExt(OpTodControl) {} // TODControl is like TODRequest with only one address and no count...
   uint8_t  filler[2] = {0};
   uint8_t  spare[7]  = {0};
   uint8_t  net;
-  enum: uint8_t {
-    None = 0, Flush
-  } command;
+  TODCommand command = TODCommand::Flush;
   uint8_t  address;
 };
 
@@ -295,11 +371,11 @@ struct RDM: HeaderExt {
     rdmData(*c) {
       // memcpy(data, c->buffer + 1, c->packet.length + 1); // Copy everything except the 0xCC start code
     }
-  uint8_t   rdmVer     = protocol::rdmVersion;    // RDM version - RDM STANDARD V1.0
+  uint8_t   rdmVer     = def::rdmVersion;    // RDM version - RDM STANDARD V1.0
   uint8_t   filler2    = 0;
   uint8_t   spare[7]   = {0};
   uint8_t   netSwitch;
-  uint8_t   cmd        = 0x00;    // Command - 0x00 = Process RDM
+  uint8_t   cmd        = 0x00;    // Command - 0x00 ArProcess = Process RDM. only one available.
   uint8_t   address;
   rdm::RdmData   rdmData; //"excluding the DMX startcode" - so both CC rdm and 01 dmx niet?
 };
@@ -319,17 +395,17 @@ struct DiagData: HeaderExt {
   DiagPriority priority;
 	uint8_t filler2, filler3;
 	uint16_t length;             // BYTE-SWAPPED MANUALLY. Length of array below
-	uint8_t data[protocol::dmxBufferSize]; // Variable size array which is defined as maximum here.
+	uint8_t data[def::dmxBufferSize]; // Variable size array which is defined as maximum here.
 };
 
-////////////////////////////////////////////////
-//  Transfer diagnostic data from node to server
 struct Command: HeaderExt {
-  Command(uint16_t estaMan = protocol::defaultEstaMan):
-    HeaderExt(OpCommand), estaMan(estaMan) {}
+  Command(char* commandStr, uint16_t estaMan = def::defaultEstaMan):
+    HeaderExt(OpCommand), estaMan(estaMan) {
+      strncpy(data, commandStr, def::dmxBufferSize - 1); //or?
+    }
 	uint16_t estaMan;           // ESTA manufacturer id, hi byte
 	uint16_t length;             // BYTE-SWAPPED MANUALLY. Length of array below. Range 0 - 512
-	char data[protocol::dmxBufferSize]; // Variable size array which is defined as maximum here. Contains null terminated command text.
+	char data[def::dmxBufferSize] = {0}; // Variable size array which is defined as maximum here. Contains null terminated command text.
 };
 
 //////////////////////////////////////////
@@ -394,12 +470,12 @@ struct Address: HeaderExt {
 
   NodeName names{};
 
-	uint8_t swIn[protocol::numPorts]; // Bits 3-0 of the 15 bit universe number for a given input port are encoded into the bottom 4 bits of this field.
+	uint8_t swIn[def::numPorts]; // Bits 3-0 of the 15 bit universe number for a given input port are encoded into the bottom 4 bits of this field.
 	// This is used in combination with NetSwitch and SubSwitch to produce the full universe address.
 	// This value is ignored unless bit 7 is high. i.e. to program a  value 0x07, send the value as 0x87.
 	// Send 0x00 to reset this value to the physical switch setting.
 	// Use value 0x7f for no change.  Array size is fixed
-	uint8_t swOut[protocol::numPorts]; // Bits 3-0 of the 15 bit universe number for a given output port are encoded into the bottom 4 bits of this field.
+	uint8_t swOut[def::numPorts]; // Bits 3-0 of the 15 bit universe number for a given output port are encoded into the bottom 4 bits of this field.
 	// This is used in combination with NetSwitch and SubSwitch to produce the full universe address.
 	// This value is ignored unless bit 7 is high. i.e. to program a  value 0x07, send the value as 0x87.
 	// Send 0x00 to reset this value to the physical switch setting.
@@ -432,13 +508,13 @@ struct IpProg: HeaderExt {
          enableDHCP: 1,	            // Bit 6 enable DHCP (overrides all lower bits)
          programming: 1;	          // Bit 7 must be 1 for any programming.
   };   // Bit fields as follows: (Set to zero to poll for IP info)
-  bool falseMeansPollIP;
+  bool falseMeansJustPollIP;
   };
 	uint8_t filler4;  // Fill to word boundary.
 
   uint32_t ip,        // uint8_t ProgIpHi; // Use this IP if Command.Bit2 uint8_t ProgIp2; uint8_t ProgIp1; uint8_t ProgIpLo;
            subMask;   // Use this Subnet Mask if Command.Bit1. hi->lo
-	uint16_t port;      // Use this Port Number if Command.Bit0
+	uint16_t port;      // Use this (UDP!!) Port Number if Command.Bit0
 
 	uint8_t spare[8]{0}; // Set to zero, do not test in receiver.
 };
@@ -449,13 +525,13 @@ struct IpProgReply: HeaderExt {
     HeaderExt(OpIpProgReply),
     ip(network.ip), subMask(network.subnet), dhcpEnabled(network.dhcp) // garbage around?
      {}
-  // IpProgReply(IPAddress ip, IPAddress subnet, uint16_t port = protocol::defaultUdpPort):
+  // IpProgReply(IPv4 ip, IPv4 subnet, uint16_t port = def::defaultUdpPort):
   //   ip(ip), subMask(subnet), port(htons(port)), dhcpEnabled(true) {} // really swap??
 	uint8_t filler[4]{0}; // Fill to word boundary.
 
   uint32_t ip; // The node's current IP Address
   uint32_t subMask; // current subnet
-	uint16_t port = protocol::defaultUdpPort; // hi lo, current port. I'm guessing to use non-6454?
+	uint16_t port = def::defaultUdpPort; // hi lo, current port. I'm guessing to use non-6454?
 
   struct {
     bool :6,

@@ -3,13 +3,13 @@
 
 artnet4real aims to be a modern, cross-platform, feature-complete, self-documenting,
 standalone C++ Art-Net v4 library including RDM and sACN switching support,
-sender merging, and apart from Node also full Controller functionality.
+sender merging, and apart from Node/receiver also full Controller/server functionality.
 It is likely very few of those things.
 
 Initially (aka. currently) developed for my own usage with esp-idf v4.0 and C++17,
 and still migrating away from Arduino headers.
 I'm very much still learning proper C++ as I go along, and am aware the code reflects
-this. Critique very welcome, contributions even moreso.
+this. Scrutiny incredibly welcome, contributions even moreso.
 
 Packet definition == packet parsing == packet construction:
 - yay bitfield and union abuse bonanza-fest
@@ -21,11 +21,12 @@ While eventually (re)built from scratch it's indebted to existing
 libraries like ArtNode, ola-artnet, espArtNetRDM/espArtNetNode as well as
 headers from Artistic-License.
 
+ps. Looking for programming related work! Hit me up.
 
 ## USAGE
 ```
 using namespace an4r;
-auto driver = std::make_unique(artnet::Driver(yada));
+auto driver = std::make_unique<artnet::Driver>(...);
 ```
 
 ### Example Configuration:
@@ -36,7 +37,7 @@ With Arduino AsyncUDP:
 driver->init(ip, sub, mac);
 
 udp.listen(artnet::protocol::defaultUdpPort);
-udp.onPacket([this](AsyncUDPPacket& packet) { // mind this bugs out without PR #3290
+udp.onPacket([this](AsyncUDPPacket& packet) { // mind this bugs out on esp32 without PR #3290
       this->driver->onPacket((uint32_t)packet.remoteIP(), packet.data(), packet.length());
     });
 
