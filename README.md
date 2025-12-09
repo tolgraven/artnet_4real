@@ -1,14 +1,13 @@
-# artnet4real 
-[![Build Status](https://travis-ci.com/JonasArnold/ArtNetE131Lib_esp8266.svg?branch=master)](https://travis-ci.com/JonasArnold/ArtNetE131Lib_esp8266)
+# artnet4real
 
 artnet4real aims to be a modern, cross-platform, feature-complete, self-documenting,
 standalone C++ Art-Net v4 library including RDM and sACN switching support,
 sender merging, and apart from Node/receiver also full Controller/server functionality.
-It is likely very few of those things.
+It is likely very few of those things. Or actually it should be pretty full featured by now, but a lot of stuff is untested at this point since I have no application that utalizes remotely all parts of it.
 
 Initially (aka. currently) developed for my own usage with esp-idf v4.0 and C++17,
 and still migrating away from Arduino headers.
-I'm very much still learning proper C++ as I go along, and am aware the code reflects
+I'm very much still learning proper modern C++ as I go along, and am aware the code reflects
 this. Scrutiny incredibly welcome, contributions even moreso.
 
 Packet definition == packet parsing == packet construction:
@@ -20,8 +19,6 @@ It's also probably terrible for cross-platform aims.
 While eventually (re)built from scratch it's indebted to existing 
 libraries like ArtNode, ola-artnet, espArtNetRDM/espArtNetNode as well as
 headers from Artistic-License.
-
-ps. Looking for programming related work! Hit me up.
 
 ## USAGE
 ```
