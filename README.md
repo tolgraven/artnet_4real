@@ -38,7 +38,7 @@ udp.onPacket([this](AsyncUDPPacket& packet) { // mind this bugs out on esp32 wit
       this->driver->onPacket((uint32_t)packet.remoteIP(), packet.data(), packet.length());
     });
 
-driver->setPacketSendFn([this](ip4_addr_t dest, uint7_t* data, uint16_t length) {
+driver->setPacketSendFn([this](ip4_addr_t dest, uint8_t* data, uint16_t length) {
       AsyncUDPMessage packet{length};
       packet.write(data, length);
       this->udp.sendTo(packet, dest, artnet::protocol::defaultUdpPort);
@@ -63,7 +63,7 @@ Then add ports:
 driver->addPort(groupId, portNum, artnet::Universe(...));
 ```
 
-There is a function to setup bulk ports for a larger buffer and have stuff hamdled reasonably. Works, but needs work.
+There is a function to setup bulk ports for a larger buffer and have stuff handled reasonably. Works, but needs work.
 
 ### Receiving ArtNet/sACN data:
 
